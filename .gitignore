@@ -24,3 +24,6 @@ hs_err_pid*
 
 # idea configurations
 .idea/
+
+# output directory
+out/
