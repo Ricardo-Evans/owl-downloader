@@ -31,6 +31,7 @@ public final class Session implements Serializable {
     private int maxTasks = 5;
     private int keepaliveTime = 60;
     private ProxySelector proxySelector = ProxySelector.getDefault();
+    private String directory = System.getProperty("user.dir");
 
     private Session() {
         Dispatcher.getInstance().register(this::onTaskStatusChange);
@@ -217,5 +218,25 @@ public final class Session implements Serializable {
                 if (instance == null) instance = this;
             }
         return instance;
+    }
+
+    /**
+     * Get the default directory where to store data
+     *
+     * @return the default directory where to store data
+     */
+    public String getDirectory() {
+        return directory;
+    }
+
+    /**
+     * Set the default directory where to store data
+     *
+     * @param directory the default directory where to store data
+     * @throws NullPointerException if directory is null
+     */
+    public void setDirectory(String directory) {
+        Objects.requireNonNull(directory, "the directory cannot be null");
+        this.directory = directory;
     }
 }

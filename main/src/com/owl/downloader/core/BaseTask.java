@@ -5,6 +5,7 @@ import com.owl.downloader.event.Event;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * The skeleton implementation of task
@@ -17,6 +18,7 @@ public abstract class BaseTask implements Task {
     private volatile Status status = Status.WAITING;
     private static final Map<Status, Event> EVENT_MAP = new HashMap<>();
     private FileData.BlockSelector blockSelector;
+    private String directory = Session.getInstance().getDirectory();
 
     static {
         EVENT_MAP.put(Status.ACTIVE, Event.START);
@@ -69,6 +71,17 @@ public abstract class BaseTask implements Task {
     protected final void changeStatus(Status status, Exception exception) {
         this.status = status;
         Dispatcher.getInstance().dispatch(EVENT_MAP.get(status), this, exception);
+    }
+
+    @Override
+    public String getDirectory() {
+        return directory;
+    }
+
+    @Override
+    public void setDirectory(String directory) {
+        Objects.requireNonNull(directory, "the directory cannot be null");
+        this.directory = directory;
     }
 
     @Override

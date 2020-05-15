@@ -100,6 +100,21 @@ public interface Task extends Runnable, Serializable {
     void stop();
 
     /**
+     * Get the directory where to store data
+     *
+     * @return the directory where to store data
+     */
+    String getDirectory();
+
+    /**
+     * Set the directory where to store data
+     *
+     * @param directory the directory where to store data
+     * @throws NullPointerException if the directory is null
+     */
+    void setDirectory(String directory);
+
+    /**
      * Get the download speed, in bytes/second
      *
      * @return the download speed
