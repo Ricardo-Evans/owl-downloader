@@ -16,7 +16,8 @@ public interface IOCallback {
      *
      * @param channel   the io channel
      * @param buffer    the data buffer
+     * @param size      the size of bytes read/written
      * @param exception any exception during the io if exist
      */
-    void callback(Channel channel, ByteBuffer buffer, Exception exception);
+    void callback(Channel channel, ByteBuffer buffer, int size, Exception exception);
 }
