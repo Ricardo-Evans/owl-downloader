@@ -1,0 +1,33 @@
+plugins {
+    id 'java'
+}
+
+sourceSets {
+    main {
+        java {
+            srcDirs("main/src")
+        }
+        resources {
+            srcDirs("main/res")
+        }
+    }
+    test {
+        java {
+            srcDirs("test/src")
+        }
+        resources {
+            srcDir("test/res")
+        }
+    }
+}
+
+group 'com.owl'
+version '1.0'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    testCompile group: 'junit', name: 'junit', version: '4.12'
+}
