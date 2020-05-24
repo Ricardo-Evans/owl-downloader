@@ -33,7 +33,7 @@ public final class Session implements Serializable {
     private ProxySelector proxySelector = ProxySelector.getDefault();
 
     private Session() {
-        Dispatcher.getInstance().register(this::onTaskStatusChange);
+        Dispatcher.getInstance().attach(this::onTaskStatusChange);
     }
 
     /**

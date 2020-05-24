@@ -1,1 +1,1 @@
-packageSearchIndex = [{"l":"com.owl.downloader.core"},{"l":"com.owl.downloader.event"},{"l":"com.owl.downloader.exception"},{"l":"com.owl.downloader.io"},{"l":"com.owl.downloader.plugin"},{"l":"所有程序包","url":"allpackages-index.html"}]
+packageSearchIndex = [{"l":"com.owl.downloader.core","h":"","u":""},{"l":"com.owl.downloader.event","h":"","u":""},{"l":"com.owl.downloader.exception","h":"","u":""},{"l":"com.owl.downloader.io","h":"","u":""},{"l":"com.owl.downloader.plugin","h":"","u":""},{"l":"所有程序包","h":"","u":"allpackages-index.html"}]
