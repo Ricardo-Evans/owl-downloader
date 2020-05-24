@@ -102,11 +102,11 @@ public final class Session implements Serializable {
      *
      * @param task the task to be added
      */
-    public void addTask(Task task) {
+    public void insertTask(Task task) {
         tasksLock.writeLock().lock();
         try {
             tasks.add(task);
-            adjustActiveTaskCount();
+            Dispatcher.getInstance().dispatch(Event.INSERT, task, null);
         } finally {
             tasksLock.writeLock().unlock();
         }
@@ -124,6 +124,7 @@ public final class Session implements Serializable {
         tasksLock.writeLock().lock();
         try {
             tasks.remove(task);
+            Dispatcher.getInstance().dispatch(Event.REMOVE, task, null);
         } finally {
             tasksLock.writeLock().unlock();
         }
