@@ -81,6 +81,13 @@ public interface Task extends Runnable, Serializable {
     Status status();
 
     /**
+     * Get the display name, usually the related file name
+     *
+     * @return the display name
+     */
+    String name();
+
+    /**
      * Change the status to WAITING, the task will be executed once possible
      *
      * @throws IllegalStateException if the task is not in WAITING status

@@ -17,6 +17,7 @@ public abstract class BaseTask implements Task {
     private volatile Status status = Status.WAITING;
     private static final Map<Status, Event> EVENT_MAP = new HashMap<>();
     private FileData.BlockSelector blockSelector;
+    private final String name;
 
     static {
         EVENT_MAP.put(Status.ACTIVE, Event.START);
@@ -27,9 +28,18 @@ public abstract class BaseTask implements Task {
         EVENT_MAP.put(Status.ERROR, Event.ERROR);
     }
 
+    protected BaseTask(String name) {
+        this.name = name;
+    }
+
     @Override
     public final Status status() {
         return status;
+    }
+
+    @Override
+    public final String name() {
+        return name;
     }
 
     @Override
