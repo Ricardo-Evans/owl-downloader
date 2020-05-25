@@ -91,7 +91,7 @@ public final class Session implements Serializable {
     public List<Task> getTasks() {
         tasksLock.readLock().lock();
         try {
-            return List.copyOf(tasks);
+            return new LinkedList<>(tasks);
         } finally {
             tasksLock.readLock().unlock();
         }
