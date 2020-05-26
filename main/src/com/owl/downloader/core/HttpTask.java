@@ -9,9 +9,7 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.net.*;
 import java.nio.ByteBuffer;
-import java.nio.channels.Channel;
-import java.nio.channels.FileChannel;
-import java.nio.channels.SocketChannel;
+import java.nio.channels.*;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -33,7 +31,6 @@ public class HttpTask extends BaseTask implements Task {
     private long totalLength = 0;
     private long currentTime;
     private final List<FileData> files = new LinkedList<>();
-    HttpIOCallback httpIOCallback = new HttpIOCallback();
 
     static {
         uriTaskFactories.put("http", HttpTask::new);
@@ -89,9 +86,9 @@ public class HttpTask extends BaseTask implements Task {
      */
     @Override
     public void run() {
-        if(protocol == "http"){
+        if (protocol == "http") {
             setHttpFileAttributes();
-        }else {
+        } else {
 
         }
 
@@ -102,22 +99,22 @@ public class HttpTask extends BaseTask implements Task {
         currentConnections = System.currentTimeMillis();
 
         while ((block = blockSelector.select(availableBlocks)) != null) {
-            if (status() == Status.PAUSED){
+            if (status() == Status.PAUSED) {
                 long lastLength = downloadedLength;
                 try {
                     Thread.sleep(1000);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
-                downloadSpeed = (downloadedLength - lastLength)/1024;
+                downloadSpeed = (downloadedLength - lastLength) / 1024;
                 continue;
             }
             if (currentConnections < getMaximumConnections() && status() == Status.ACTIVE) {
                 ++currentConnections;
                 block.available = false;
-                if(protocol == "http") {
+                if (protocol == "http") {
                     createHttpConnection(block);
-                }else {
+                } else {
 
                 }
             }
@@ -129,7 +126,7 @@ public class HttpTask extends BaseTask implements Task {
     /**
      * Set Http source file's length and type.
      */
-    private void setHttpFileAttributes(){
+    private void setHttpFileAttributes() {
         HttpURLConnection httpConnection = null;
         try {
             httpConnection = (HttpURLConnection) this.uri.toURL().openConnection(proxy);
@@ -141,7 +138,7 @@ public class HttpTask extends BaseTask implements Task {
         type = httpConnection.getContentType();
     }
 
-    private void setHttpsFileAttributes(){
+    private void setHttpsFileAttributes() {
 
     }
 
@@ -149,9 +146,7 @@ public class HttpTask extends BaseTask implements Task {
      * Create connection for a block,send channels and buffers to IOScheduler.
      */
     private void createHttpConnection(FileData.Block block) {
-        SocketChannel socketChannel = null;
-        try {
-            socketChannel = SocketChannel.open();
+        try (SocketChannel socketChannel = SocketChannel.open()) {
             socketChannel.configureBlocking(false);
 
 
@@ -176,11 +171,35 @@ public class HttpTask extends BaseTask implements Task {
             FileChannel fileChannel = (new FileInputStream(getDirectory() + name() + "." + type)).getChannel().position(block.offset);
             ByteBuffer responseBuffer = ByteBuffer.allocate(16 * 1024);
 
-            ioScheduler.read(socketChannel, responseBuffer, httpIOCallback);
-            ioScheduler.write(fileChannel, responseBuffer, httpIOCallback);
+            int readSize = 0;
+            while (readSize != -1) {
+                readSize = httpRead(socketChannel,responseBuffer);
+                httpWrite(fileChannel,responseBuffer);
+            }
         } catch (IOException e) {
-            e.printStackTrace();
+            block.available = true;
+        } finally {
+            --currentConnections;
         }
+    }
+
+    private int httpRead(ReadableByteChannel channel, ByteBuffer buffer){
+        final int[] readSize = new int[1];
+        IOCallback httpReadCallback = (Channel socketchannel, ByteBuffer responseBuffer, int size, Exception exception) -> {
+            long lastTime = currentTime;
+            currentTime = System.currentTimeMillis();
+            downloadSpeed = size / (currentTime - lastTime) / 1000 / 1024;  //kb/s
+            adjustDownloadedLength(size);
+            readSize[0] = size;
+        };
+        ioScheduler.read(channel, buffer, httpReadCallback);
+        return readSize[0];
+    }
+
+    private void httpWrite(WritableByteChannel channel,ByteBuffer buffer){
+        IOCallback httpWriteCallback = (Channel socketchannel, ByteBuffer responseBuffer, int size, Exception exception) ->{
+        };
+        ioScheduler.write(channel,buffer,httpWriteCallback);
     }
 
     /**
@@ -213,13 +232,12 @@ public class HttpTask extends BaseTask implements Task {
                 randomAccessFile = new RandomAccessFile(file, "rw");
                 randomAccessFile.setLength(totalLength);
             } catch (IOException e) {
-                e.printStackTrace();
+                changeStatus(Status.ERROR);
             } finally {
                 if (randomAccessFile != null) {
                     try {
                         randomAccessFile.close();
                     } catch (Exception e) {
-                        e.printStackTrace();
                     }
                 }
             }
@@ -227,19 +245,6 @@ public class HttpTask extends BaseTask implements Task {
         this.files.add(new FileData(file, (int) getBlockSize()));
     }
 
-    /**
-     * Callback class,called once io finish,adjust downloaded size, speed and the amount of current connctions.
-     */
-    class HttpIOCallback implements IOCallback {
-        @Override
-        public void callback(Channel channel, ByteBuffer buffer, int size, Exception exception) {
-            long lastTime = currentTime;
-            currentTime = System.currentTimeMillis();
-            downloadSpeed = size/(currentTime - lastTime)/1000/1024;  //kb/s
-            adjustDownloadedLength(size);
-            --currentConnections;
-        }
-    }
 
 }
 
