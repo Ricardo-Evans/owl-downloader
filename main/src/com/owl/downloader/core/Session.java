@@ -2,7 +2,9 @@ package com.owl.downloader.core;
 
 import com.owl.downloader.event.Dispatcher;
 import com.owl.downloader.event.Event;
+import com.owl.downloader.io.IOScheduler;
 
+import java.io.IOException;
 import java.io.Serializable;
 import java.net.ProxySelector;
 import java.util.Iterator;
@@ -42,7 +44,8 @@ public final class Session implements Serializable {
     /**
      * Start the session, some initializations done here, all the tasks cannot be executed until the session is started
      */
-    public void start() {
+    public void start() throws IOException {
+        IOScheduler.getInstance().start();
         executor = new ThreadPoolExecutor(0, maxTasks, keepaliveTime, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
         tasks.stream().filter(task -> task.status() == Task.Status.ACTIVE).forEach(executor::execute);
         adjustActiveTaskCount();
@@ -51,7 +54,8 @@ public final class Session implements Serializable {
     /**
      * Stop the session, release the resources
      */
-    public void stop() {
+    public void stop() throws IOException {
+        IOScheduler.getInstance().stop();
         if (executor != null) executor.shutdownNow();
         executor = null;
     }
