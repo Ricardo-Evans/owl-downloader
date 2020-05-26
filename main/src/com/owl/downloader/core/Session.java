@@ -31,6 +31,9 @@ public final class Session implements Serializable {
     private int maxTasks = 5;
     private int keepaliveTime = 60;
     private ProxySelector proxySelector = ProxySelector.getDefault();
+    private String directory = System.getProperty("user.dir");
+    private int maximumConnections = 5;
+    private int blockSize = 1 << 14; // 16KB
 
     private Session() {
         Dispatcher.getInstance().attach(this::onTaskStatusChange);
@@ -210,6 +213,63 @@ public final class Session implements Serializable {
     public void setProxySelector(ProxySelector proxySelector) {
         Objects.requireNonNull(proxySelector);
         this.proxySelector = proxySelector;
+    }
+
+    /**
+     * Get the default working directory
+     *
+     * @return the default working directory
+     */
+    public String getDirectory() {
+        return directory;
+    }
+
+    /**
+     * Set the default working directory
+     *
+     * @param directory the default working directory
+     */
+    public void setDirectory(String directory) {
+        Objects.requireNonNull(directory);
+        this.directory = directory;
+    }
+
+    /**
+     * Get the default count of maximum connections per task
+     *
+     * @return the default count of maximum connections per task
+     */
+    public int getMaximumConnections() {
+        return maximumConnections;
+    }
+
+    /**
+     * Set the default count of maximum connections per task
+     *
+     * @param maximumConnections the default count of maximum connections per task
+     */
+    public void setMaximumConnections(int maximumConnections) {
+        if (maximumConnections <= 0) throw new IllegalArgumentException();
+        this.maximumConnections = maximumConnections;
+    }
+
+    /**
+     * Get the default block size, in bytes
+     *
+     * @return the default block size, in bytes
+     */
+    public int getBlockSize() {
+        return blockSize;
+    }
+
+    /**
+     * Set the default block size, in bytes
+     *
+     * @param blockSize the default block size, in bytes
+     */
+    public void setBlockSize(int blockSize) {
+        if (blockSize <= 0) throw new IllegalArgumentException();
+        this.blockSize = blockSize;
     }
 
     private Object readResolve() {

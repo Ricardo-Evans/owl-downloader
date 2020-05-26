@@ -6,7 +6,6 @@ public enum Event {
     START,
     PAUSE,
     WAIT,
-    STOP,
     COMPLETE,
     ERROR
 }

@@ -3,19 +3,20 @@ package com.owl.downloader.core;
 import com.owl.downloader.io.IOCallback;
 import com.owl.downloader.io.IOScheduler;
 
-import java.io.*;
-import java.net.*;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
+import java.net.Proxy;
+import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channel;
 import java.nio.channels.FileChannel;
 import java.nio.channels.SocketChannel;
-import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
 
 /**
  * Task that downloads http url
@@ -24,44 +25,26 @@ import java.util.function.Function;
  * @version 1.0
  */
 public class HttpTask extends BaseTask implements Task {
-    private final URL url;
-    private final String directory;
-    private final String fileName;
-    private final Proxy proxy;
-    private  String type;
+    private final URI uri;
+    private Proxy proxy;
+    private String type;
     private final IOScheduler ioScheduler = IOScheduler.getInstance();
-    private long blockSize;
-    private long amountOfConnections;
     private long currentConnections;
-    private long downloadSpeed;
-    private long uploadSpeed = 0;
-    private long downloadedLength;
-    private long totalLength;
-    private List<FileData> files;
-    private ThreadPoolExecutor executor;
+    private long downloadSpeed = 0;
+    private long downloadedLength = 0;
+    private long totalLength = 0;
+    private final List<FileData> files = new LinkedList<>();
     HttpIOCallback httpIOCallback = new HttpIOCallback();
 
-    /**
-     * Constructor,not init type and length of the file.
-     */
-    HttpTask(URL url, String directory, String fileName, long amountOfConnections, long blockSize, Proxy proxy) throws IOException {
-        this.directory = directory;
-        this.fileName = fileName;
-        this.proxy = proxy;
-        this.amountOfConnections = amountOfConnections;
-        this.url = url;
-        this.totalLength = -1;
-        this.blockSize = blockSize;
-        this.files = new LinkedList<>();
-        this.executor = new ThreadPoolExecutor(0, (int) 2, 60, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
+    static {
+        uriTaskFactories.put("http", HttpTask::new);
+        uriTaskFactories.put("https", HttpTask::new);
     }
 
-    HttpTask(URL url, String directory, String fileName, long amountOfConnections, long blockSize) throws IOException {
-        this(url, directory, fileName, amountOfConnections, blockSize, null);
-    }
-
-    HttpTask(URL url) throws IOException {
-        this(url, null, null, 10, 0, null);
+    public HttpTask(URI uri) {
+        super(new File(uri.getPath()).getName());
+        this.uri = uri;
+        this.proxy = getProxySelector().select(uri).get(0);
     }
 
     /**
@@ -108,7 +91,7 @@ public class HttpTask extends BaseTask implements Task {
     public void run() {
         HttpURLConnection httpConnection = null;
         try {
-            httpConnection = (HttpURLConnection) this.url.openConnection(proxy);
+            httpConnection = (HttpURLConnection) this.uri.toURL().openConnection(proxy);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -119,9 +102,8 @@ public class HttpTask extends BaseTask implements Task {
         FileData.BlockSelector blockSelector = FileData.BlockSelector.getDefault();
         List<FileData.Block> availableBlocks = files.get(0).getBlocks();  //need to change.
         FileData.Block block;
-        executor.submit(new HttpDownloadSpeed());
         while ((block = blockSelector.select(availableBlocks)) != null) {
-            if(currentConnections < amountOfConnections){
+            if (currentConnections < getMaximumConnections()) {
                 ++currentConnections;
                 block.available = false;
                 createConnection(block);
@@ -138,9 +120,9 @@ public class HttpTask extends BaseTask implements Task {
             socketChannel = SocketChannel.open();
             socketChannel.configureBlocking(false);
 
-            String host = url.getHost();
-            String fileUrl = url.getFile();
-            int port = url.getPort();
+            String host = uri.getHost();
+            String fileUrl = uri.getPath();
+            int port = uri.getPort();
             if (port == -1) {
                 port = 80;
             }
@@ -151,14 +133,14 @@ public class HttpTask extends BaseTask implements Task {
             requestMessage.append("GET " + fileUrl + " HTTP/1.1\r\n");
             requestMessage.append("Host:" + host + "\r\n");
             requestMessage.append("Connection: close\r\n");
-            requestMessage.append("Range: bytes=" + Long.toString(block.offset) + "-" + Long.toString(block.length + block.offset - 1) + "\r\n");
+            requestMessage.append("Range: bytes=" + block.offset + "-" + (block.length + block.offset - 1) + "\r\n");
             requestMessage.append("\r\n");
 
             ByteBuffer requestBuffer = ByteBuffer.wrap(requestMessage.toString().getBytes());
             socketChannel.write(requestBuffer);
             skipHeader(socketChannel);
 
-            FileChannel fileChannel = (new FileInputStream(directory + fileName + "." + type)).getChannel().position(block.offset);
+            FileChannel fileChannel = (new FileInputStream(getDirectory() + name() + "." + type)).getChannel().position(block.offset);
             ByteBuffer responseBuffer = ByteBuffer.allocate(16 * 1024);
 
             ioScheduler.read(socketChannel, responseBuffer, httpIOCallback);
@@ -191,7 +173,7 @@ public class HttpTask extends BaseTask implements Task {
      * Create a fixed size file to store resource file.
      */
     private void createFile() {
-        File file = new File(directory + fileName + "." + type);
+        File file = new File(getDirectory() + name() + "." + type);
         if (!file.exists()) {
             RandomAccessFile randomAccessFile = null;
             try {
@@ -209,28 +191,13 @@ public class HttpTask extends BaseTask implements Task {
                 }
             }
         }
-        this.files.add(new FileData(file, (int) blockSize));
+        this.files.add(new FileData(file, (int) getBlockSize()));
     }
-
-    /**
-     * Factory to construct Http task.
-     */
-    static Function<URI, Task> httpTaskFactory = uri -> {
-        try {
-            return (new HttpTask(uri.toURL()));
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        return null;
-    };
 
     /**
      * Callback class,called once io finish,adjust downloaded size and the mount of current connctions.
      */
     class HttpIOCallback implements IOCallback {
-        HttpIOCallback() {
-        }
-
         @Override
         public void callback(Channel channel, ByteBuffer buffer, int size, Exception exception) {
             adjustDownloadedLength(size);
@@ -242,9 +209,6 @@ public class HttpTask extends BaseTask implements Task {
      * Used to calculate download speed.
      */
     class HttpDownloadSpeed implements Runnable {
-        HttpDownloadSpeed() {
-        }
-
         @Override
         public void run() {
             long lastDownloadedLength;
