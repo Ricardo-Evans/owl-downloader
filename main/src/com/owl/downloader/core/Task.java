@@ -4,6 +4,7 @@ import com.owl.downloader.exception.UnsupportedProtocolException;
 
 import java.io.File;
 import java.io.Serializable;
+import java.net.ProxySelector;
 import java.net.URI;
 import java.util.HashMap;
 import java.util.List;
@@ -69,7 +70,6 @@ public interface Task extends Runnable, Serializable {
         WAITING,
         PAUSED,
         COMPLETED,
-        STOPPED,
         ERROR
     }
 
@@ -79,6 +79,13 @@ public interface Task extends Runnable, Serializable {
      * @return the current status
      */
     Status status();
+
+    /**
+     * Get the display name, usually the related file name
+     *
+     * @return the display name
+     */
+    String name();
 
     /**
      * Change the status to WAITING, the task will be executed once possible
@@ -95,9 +102,46 @@ public interface Task extends Runnable, Serializable {
     void pause();
 
     /**
-     * Change the status to STOPPED, the task is not restartable after that
+     * Get the working directory
+     *
+     * @return the working directory
      */
-    void stop();
+    String getDirectory();
+
+    /**
+     * Set the working directory
+     *
+     * @param directory the working directory
+     */
+    void setDirectory(String directory);
+
+    /**
+     * Get the maximum connections count
+     *
+     * @return the maximum connections count
+     */
+    int getMaximumConnections();
+
+    /**
+     * Set the maximum connections count
+     *
+     * @param maximumConnections the maximum connections count
+     */
+    void setMaximumConnections(int maximumConnections);
+
+    /**
+     * Get the block size
+     *
+     * @return the block size, in bytes
+     */
+    int getBlockSize();
+
+    /**
+     * Set the block size
+     *
+     * @param blockSize the block size, in bytes
+     */
+    void setBlockSize(int blockSize);
 
     /**
      * Get the download speed, in bytes/second
@@ -154,4 +198,18 @@ public interface Task extends Runnable, Serializable {
      * @param selector the selector
      */
     void setBlockSelector(FileData.BlockSelector selector);
+
+    /**
+     * Get the proxy selector
+     *
+     * @return the proxy selector
+     */
+    ProxySelector getProxySelector();
+
+    /**
+     * Set the proxy selector
+     *
+     * @param selector the proxy selector
+     */
+    void setProxySelector(ProxySelector selector);
 }

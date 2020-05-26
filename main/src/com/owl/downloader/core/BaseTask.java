@@ -3,6 +3,7 @@ package com.owl.downloader.core;
 import com.owl.downloader.event.Dispatcher;
 import com.owl.downloader.event.Event;
 
+import java.net.ProxySelector;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -17,19 +18,32 @@ public abstract class BaseTask implements Task {
     private volatile Status status = Status.WAITING;
     private static final Map<Status, Event> EVENT_MAP = new HashMap<>();
     private FileData.BlockSelector blockSelector;
+    private final String name;
+    private int maximumConnections = Session.getInstance().getMaximumConnections();
+    private String directory = Session.getInstance().getDirectory();
+    private int blockSize;
+    private ProxySelector proxySelector = Session.getInstance().getProxySelector();
 
     static {
         EVENT_MAP.put(Status.ACTIVE, Event.START);
         EVENT_MAP.put(Status.WAITING, Event.WAIT);
         EVENT_MAP.put(Status.PAUSED, Event.PAUSE);
-        EVENT_MAP.put(Status.STOPPED, Event.STOP);
         EVENT_MAP.put(Status.COMPLETED, Event.COMPLETE);
         EVENT_MAP.put(Status.ERROR, Event.ERROR);
+    }
+
+    protected BaseTask(String name) {
+        this.name = name;
     }
 
     @Override
     public final Status status() {
         return status;
+    }
+
+    @Override
+    public final String name() {
+        return name;
     }
 
     @Override
@@ -43,11 +57,6 @@ public abstract class BaseTask implements Task {
         if (status != Status.ACTIVE && status != Status.WAITING)
             throw new IllegalStateException("only active|waiting tasks can be paused");
         changeStatus(Status.PAUSED);
-    }
-
-    @Override
-    public void stop() {
-        changeStatus(Status.STOPPED);
     }
 
     /**
@@ -69,6 +78,48 @@ public abstract class BaseTask implements Task {
     protected final void changeStatus(Status status, Exception exception) {
         this.status = status;
         Dispatcher.getInstance().dispatch(EVENT_MAP.get(status), this, exception);
+    }
+
+    @Override
+    public int getMaximumConnections() {
+        return maximumConnections;
+    }
+
+    @Override
+    public void setMaximumConnections(int maximumConnections) {
+        if (maximumConnections <= 0) throw new IllegalArgumentException();
+        this.maximumConnections = maximumConnections;
+    }
+
+    @Override
+    public String getDirectory() {
+        return directory;
+    }
+
+    @Override
+    public void setDirectory(String directory) {
+        this.directory = directory;
+    }
+
+    @Override
+    public int getBlockSize() {
+        return blockSize;
+    }
+
+    @Override
+    public void setBlockSize(int blockSize) {
+        if (blockSize <= 0) throw new IllegalArgumentException();
+        this.blockSize = blockSize;
+    }
+
+    @Override
+    public ProxySelector getProxySelector() {
+        return proxySelector;
+    }
+
+    @Override
+    public void setProxySelector(ProxySelector proxySelector) {
+        this.proxySelector = proxySelector;
     }
 
     @Override

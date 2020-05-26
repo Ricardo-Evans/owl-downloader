@@ -24,6 +24,10 @@ hs_err_pid*
 
 # idea configurations
 .idea/
+*.iml
 
 # output directory
-out/
+build/
+
+# gradle configurations
+.gradle/

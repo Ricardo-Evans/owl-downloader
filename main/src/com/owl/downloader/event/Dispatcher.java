@@ -5,6 +5,7 @@ import com.owl.downloader.core.Task;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Singleton class used to manage all the event
@@ -47,11 +48,24 @@ public class Dispatcher {
     }
 
     /**
-     * Register a handler
+     * Attach a handler
      *
      * @param handler the event handler
+     * @throws NullPointerException if handler is null
      */
-    public synchronized void register(EventHandler handler) {
+    public synchronized void attach(EventHandler handler) {
+        Objects.requireNonNull(handler);
         handlers.add(handler);
+    }
+
+    /**
+     * Detach a handler
+     *
+     * @param handler the event handler
+     * @throws NullPointerException if handler is null
+     */
+    public synchronized void detach(EventHandler handler) {
+        Objects.requireNonNull(handler);
+        handlers.remove(handler);
     }
 }
