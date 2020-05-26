@@ -7,10 +7,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.net.HttpURLConnection;
-import java.net.InetSocketAddress;
-import java.net.Proxy;
-import java.net.URI;
+import java.net.*;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channel;
 import java.nio.channels.FileChannel;
@@ -28,11 +25,13 @@ public class HttpTask extends BaseTask implements Task {
     private final URI uri;
     private Proxy proxy;
     private String type;
+    private String protocol;
     private final IOScheduler ioScheduler = IOScheduler.getInstance();
     private long currentConnections;
     private long downloadSpeed = 0;
     private long downloadedLength = 0;
     private long totalLength = 0;
+    private long currentTime;
     private final List<FileData> files = new LinkedList<>();
     HttpIOCallback httpIOCallback = new HttpIOCallback();
 
@@ -44,6 +43,7 @@ public class HttpTask extends BaseTask implements Task {
     public HttpTask(URI uri) {
         super(new File(uri.getPath()).getName());
         this.uri = uri;
+        this.protocol = uri.getScheme();
         this.proxy = getProxySelector().select(uri).get(0);
     }
 
@@ -89,36 +89,71 @@ public class HttpTask extends BaseTask implements Task {
      */
     @Override
     public void run() {
-        HttpURLConnection httpConnection = null;
-        try {
-            httpConnection = (HttpURLConnection) this.uri.toURL().openConnection(proxy);
-        } catch (IOException e) {
-            e.printStackTrace();
+        if(protocol == "http"){
+            setHttpFileAttributes();
+        }else {
+
         }
-        assert httpConnection != null;
-        totalLength = httpConnection.getContentLength();
-        type = httpConnection.getContentType();
+
         createFile();
         FileData.BlockSelector blockSelector = FileData.BlockSelector.getDefault();
         List<FileData.Block> availableBlocks = files.get(0).getBlocks();  //need to change.
         FileData.Block block;
+        currentConnections = System.currentTimeMillis();
+
         while ((block = blockSelector.select(availableBlocks)) != null) {
-            if (currentConnections < getMaximumConnections()) {
+            if (status() == Status.PAUSED){
+                long lastLength = downloadedLength;
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                downloadSpeed = (downloadedLength - lastLength)/1024;
+                continue;
+            }
+            if (currentConnections < getMaximumConnections() && status() == Status.ACTIVE) {
                 ++currentConnections;
                 block.available = false;
-                createConnection(block);
+                if(protocol == "http") {
+                    createHttpConnection(block);
+                }else {
+
+                }
             }
         }
+
+        changeStatus(Status.COMPLETED);
+    }
+
+    /**
+     * Set Http source file's length and type.
+     */
+    private void setHttpFileAttributes(){
+        HttpURLConnection httpConnection = null;
+        try {
+            httpConnection = (HttpURLConnection) this.uri.toURL().openConnection(proxy);
+        } catch (IOException e) {
+            changeStatus(Status.ERROR);
+            return;
+        }
+        totalLength = httpConnection.getContentLength();
+        type = httpConnection.getContentType();
+    }
+
+    private void setHttpsFileAttributes(){
+
     }
 
     /**
      * Create connection for a block,send channels and buffers to IOScheduler.
      */
-    private void createConnection(FileData.Block block) {
+    private void createHttpConnection(FileData.Block block) {
         SocketChannel socketChannel = null;
         try {
             socketChannel = SocketChannel.open();
             socketChannel.configureBlocking(false);
+
 
             String host = uri.getHost();
             String fileUrl = uri.getPath();
@@ -129,14 +164,12 @@ public class HttpTask extends BaseTask implements Task {
             InetSocketAddress address = new InetSocketAddress(host, port);
             socketChannel.connect(address);
 
-            StringBuilder requestMessage = new StringBuilder();
-            requestMessage.append("GET " + fileUrl + " HTTP/1.1\r\n");
-            requestMessage.append("Host:" + host + "\r\n");
-            requestMessage.append("Connection: close\r\n");
-            requestMessage.append("Range: bytes=" + block.offset + "-" + (block.length + block.offset - 1) + "\r\n");
-            requestMessage.append("\r\n");
-
-            ByteBuffer requestBuffer = ByteBuffer.wrap(requestMessage.toString().getBytes());
+            String requestMessage = ("GET " + fileUrl + " HTTP/1.1\r\n") +
+                    "Host:" + host + "\r\n" +
+                    "Connection: close\r\n" +
+                    "Range: bytes=" + block.offset + "-" + (block.length + block.offset - 1) + "\r\n" +
+                    "\r\n";
+            ByteBuffer requestBuffer = ByteBuffer.wrap(requestMessage.getBytes());
             socketChannel.write(requestBuffer);
             skipHeader(socketChannel);
 
@@ -153,9 +186,9 @@ public class HttpTask extends BaseTask implements Task {
     /**
      * Skip the header to download content.
      */
-    public void skipHeader(SocketChannel socketChannel) throws IOException {
+    private void skipHeader(SocketChannel socketChannel) throws IOException {
         ByteBuffer tempBuffer = ByteBuffer.allocate(1);
-        Byte LastByte = 0;
+        byte LastByte = 0;
         int read = socketChannel.read(tempBuffer);
         while (read != -1) {
             if (LastByte == 10 && tempBuffer.get(0) == 13) {
@@ -195,34 +228,19 @@ public class HttpTask extends BaseTask implements Task {
     }
 
     /**
-     * Callback class,called once io finish,adjust downloaded size and the mount of current connctions.
+     * Callback class,called once io finish,adjust downloaded size, speed and the amount of current connctions.
      */
     class HttpIOCallback implements IOCallback {
         @Override
         public void callback(Channel channel, ByteBuffer buffer, int size, Exception exception) {
+            long lastTime = currentTime;
+            currentTime = System.currentTimeMillis();
+            downloadSpeed = size/(currentTime - lastTime)/1000/1024;  //kb/s
             adjustDownloadedLength(size);
             --currentConnections;
         }
     }
 
-    /**
-     * Used to calculate download speed.
-     */
-    class HttpDownloadSpeed implements Runnable {
-        @Override
-        public void run() {
-            long lastDownloadedLength;
-            while (downloadedLength < totalLength) {
-                lastDownloadedLength = downloadedLength;
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-                downloadSpeed = downloadedLength - lastDownloadedLength; //kb/s
-            }
-        }
-    }
 }
 
 
