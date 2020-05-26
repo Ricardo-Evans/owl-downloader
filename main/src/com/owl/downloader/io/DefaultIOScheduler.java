@@ -68,10 +68,10 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
     public synchronized void stop() throws IOException {
         if (daemon != null) daemon.interrupt();
         daemon = null;
-        if (selector != null) selector.close();
-        selector = null;
         if (executor != null) executor.shutdown();
         executor = null;
+        if (selector != null) selector.close();
+        selector = null;
     }
 
     @Override
