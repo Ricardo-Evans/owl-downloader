@@ -45,11 +45,17 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
         }
     }
 
-    public synchronized static DefaultIOScheduler getInstance() {
-        if (scheduler == null) scheduler = new DefaultIOScheduler();
+    public static DefaultIOScheduler getInstance() {
+        if (scheduler == null) {
+            synchronized (DefaultIOScheduler.class) {
+                if (scheduler == null)
+                    scheduler = new DefaultIOScheduler();
+            }
+        }
         return scheduler;
     }
 
+    @Override
     public synchronized void start() throws IOException {
         if (selector == null) selector = Selector.open();
         if (executor == null) executor = Executors.newWorkStealingPool();
@@ -58,6 +64,7 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
         daemon.start();
     }
 
+    @Override
     public synchronized void stop() throws IOException {
         if (selector != null) selector.close();
         selector = null;
