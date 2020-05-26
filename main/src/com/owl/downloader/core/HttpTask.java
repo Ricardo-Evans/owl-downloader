@@ -12,6 +12,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.*;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Task that downloads http url
@@ -47,7 +48,7 @@ public class HttpTask extends BaseTask implements Task {
     /**
      * Adjust downloaded length,always occurs during callback.
      */
-    void adjustDownloadedLength(int size) {
+    private void adjustDownloadedLength(int size) {
         downloadedLength += size;
     }
 
@@ -86,10 +87,10 @@ public class HttpTask extends BaseTask implements Task {
      */
     @Override
     public void run() {
-        if (protocol == "http") {
+        if (protocol.equals("http")) {
             setHttpFileAttributes();
         } else {
-
+            setHttpsFileAttributes();
         }
 
         createFile();
@@ -98,24 +99,14 @@ public class HttpTask extends BaseTask implements Task {
         FileData.Block block;
         currentConnections = System.currentTimeMillis();
 
-        while ((block = blockSelector.select(availableBlocks)) != null) {
-            if (status() == Status.PAUSED) {
-                long lastLength = downloadedLength;
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-                downloadSpeed = (downloadedLength - lastLength) / 1024;
-                continue;
-            }
+        while ((block = Objects.requireNonNull(blockSelector).select(availableBlocks)) != null) {
             if (currentConnections < getMaximumConnections() && status() == Status.ACTIVE) {
                 ++currentConnections;
                 block.available = false;
-                if (protocol == "http") {
+                if (protocol.equals("http")) {
                     createHttpConnection(block);
                 } else {
-
+                    createHttpsConnection(block);
                 }
             }
         }
@@ -183,23 +174,27 @@ public class HttpTask extends BaseTask implements Task {
         }
     }
 
+    private void createHttpsConnection(FileData.Block block){}
+
     private int httpRead(ReadableByteChannel channel, ByteBuffer buffer){
         final int[] readSize = new int[1];
         IOCallback httpReadCallback = (Channel socketchannel, ByteBuffer responseBuffer, int size, Exception exception) -> {
             long lastTime = currentTime;
             currentTime = System.currentTimeMillis();
-            downloadSpeed = size / (currentTime - lastTime) / 1000 / 1024;  //kb/s
-            adjustDownloadedLength(size);
+            downloadSpeed = size / (currentTime - lastTime) * 1000 ;//B/s
+            synchronized (this) {
+                adjustDownloadedLength(size);
+            }
             readSize[0] = size;
         };
-        ioScheduler.read(channel, buffer, httpReadCallback);
+        Objects.requireNonNull(ioScheduler).read(channel, buffer, httpReadCallback);
         return readSize[0];
     }
 
     private void httpWrite(WritableByteChannel channel,ByteBuffer buffer){
         IOCallback httpWriteCallback = (Channel socketchannel, ByteBuffer responseBuffer, int size, Exception exception) ->{
         };
-        ioScheduler.write(channel,buffer,httpWriteCallback);
+        Objects.requireNonNull(ioScheduler).write(channel,buffer,httpWriteCallback);
     }
 
     /**
@@ -227,19 +222,10 @@ public class HttpTask extends BaseTask implements Task {
     private void createFile() {
         File file = new File(getDirectory() + name() + "." + type);
         if (!file.exists()) {
-            RandomAccessFile randomAccessFile = null;
-            try {
-                randomAccessFile = new RandomAccessFile(file, "rw");
+            try (RandomAccessFile randomAccessFile = new RandomAccessFile(file, "rw")) {
                 randomAccessFile.setLength(totalLength);
             } catch (IOException e) {
                 changeStatus(Status.ERROR);
-            } finally {
-                if (randomAccessFile != null) {
-                    try {
-                        randomAccessFile.close();
-                    } catch (Exception e) {
-                    }
-                }
             }
         }
         this.files.add(new FileData(file, (int) getBlockSize()));
