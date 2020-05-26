@@ -59,6 +59,11 @@ public abstract class BaseTask implements Task {
         changeStatus(Status.PAUSED);
     }
 
+    @Override
+    public void prepare() {
+        changeStatus(Status.ACTIVE);
+    }
+
     /**
      * Equal to changeStatus(status, null)
      *

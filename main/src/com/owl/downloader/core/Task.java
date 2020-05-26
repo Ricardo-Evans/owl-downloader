@@ -102,6 +102,11 @@ public interface Task extends Runnable, Serializable {
     void pause();
 
     /**
+     * Prepare the task to be really run
+     */
+    void prepare();
+
+    /**
      * Get the working directory
      *
      * @return the working directory

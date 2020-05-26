@@ -7,11 +7,10 @@ import com.owl.downloader.io.IOScheduler;
 import java.io.IOException;
 import java.io.Serializable;
 import java.net.ProxySelector;
-import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -46,7 +45,7 @@ public final class Session implements Serializable {
      */
     public void start() throws IOException {
         IOScheduler.getInstance().start();
-        executor = new ThreadPoolExecutor(0, maxTasks, keepaliveTime, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
+        executor = new ThreadPoolExecutor(0, maxTasks, keepaliveTime, TimeUnit.SECONDS, new SynchronousQueue<>());
         tasks.stream().filter(task -> task.status() == Task.Status.ACTIVE).forEach(executor::execute);
         adjustActiveTaskCount();
     }
@@ -61,19 +60,21 @@ public final class Session implements Serializable {
     }
 
     // Execute waiting tasks if active tasks count does not reach max tasks
-    private void adjustActiveTaskCount() {
+    private synchronized void adjustActiveTaskCount() {
         tasksLock.readLock().lock();
         try {
-            Iterator<Task> iterator = tasks.stream().filter(task -> task.status() == Task.Status.WAITING).iterator();
-            while (executor.getActiveCount() < executor.getMaximumPoolSize() && iterator.hasNext())
-                executor.execute(iterator.next());
+            long activeCount = tasks.stream().filter(task -> task.status() == Task.Status.ACTIVE).count();
+            tasks.stream().filter(task -> task.status() == Task.Status.WAITING).limit(maxTasks - activeCount).forEach(task -> {
+                task.prepare();
+                executor.execute(task);
+            });
         } finally {
             tasksLock.readLock().unlock();
         }
     }
 
     private boolean onTaskStatusChange(Event event, Task task, Exception exception) {
-        adjustActiveTaskCount();
+        if (event != Event.START) adjustActiveTaskCount();
         return false;
     }
 
