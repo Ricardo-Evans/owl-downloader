@@ -95,14 +95,14 @@ public class HttpTask extends BaseTask implements Task {
             try {
                 setHttpFileAttributes();
             } catch (IOException e) {
-                changeStatus(Status.ERROR);
+                changeStatus(Status.ERROR, e);
                 return;
             }
         } else {
             try {
                 setHttpsFileAttributes();
             } catch (Exception e) {
-                changeStatus(Status.ERROR);
+                changeStatus(Status.ERROR, e);
                 return;
             }
         }
@@ -151,7 +151,7 @@ public class HttpTask extends BaseTask implements Task {
         try {
             httpsConnection = (HttpsURLConnection) this.uri.toURL().openConnection(proxy);
         } catch (IOException e) {
-            changeStatus(Status.ERROR);
+            changeStatus(Status.ERROR, e);
             return;
         }
         httpsConnection.setInstanceFollowRedirects(false);
@@ -349,7 +349,7 @@ public class HttpTask extends BaseTask implements Task {
             try (RandomAccessFile randomAccessFile = new RandomAccessFile(file, "rw")) {
                 randomAccessFile.setLength(totalLength);
             } catch (IOException e) {
-                changeStatus(Status.ERROR);
+                changeStatus(Status.ERROR, e);
             }
         }
         this.files.add(new FileData(file, (int) getBlockSize()));
