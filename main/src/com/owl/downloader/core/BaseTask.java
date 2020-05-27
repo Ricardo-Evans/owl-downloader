@@ -48,7 +48,8 @@ public abstract class BaseTask implements Task {
 
     @Override
     public void start() {
-        if (status != Status.PAUSED) throw new IllegalStateException("only paused task can be started");
+        if (status != Status.PAUSED || status != Status.ERROR)
+            throw new IllegalStateException("only paused or error task can be started");
         changeStatus(Status.WAITING);
     }
 
