@@ -55,7 +55,7 @@ public abstract class BaseTask implements Task {
 
     @Override
     public void pause() {
-        if (status != Status.ACTIVE && status != Status.WAITING)
+        if (status != Status.ACTIVE || status != Status.WAITING)
             throw new IllegalStateException("only active|waiting tasks can be paused");
         changeStatus(Status.PAUSED);
     }
