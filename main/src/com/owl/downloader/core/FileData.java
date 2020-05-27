@@ -106,7 +106,10 @@ public class FileData implements Serializable {
          * @return the default block selector
          */
         static BlockSelector getDefault() {
-            return (List<Block> blocks) -> blocks.stream().filter(block -> !block.available).findAny().orElse(null);
+            BlockSelector blockSelector = (List<Block> blocks1) -> {
+                return blocks1.stream().filter(block -> block.available).findAny().get();
+            };
+            return blockSelector;
         }
 
         /**
