@@ -1,16 +1,8 @@
 package com.owl.downloader.core;
 
-import com.owl.downloader.exception.UnsupportedProtocolException;
-
-import java.io.File;
 import java.io.Serializable;
 import java.net.ProxySelector;
-import java.net.URI;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.function.Function;
 
 /**
  * Represent a download/upload task
@@ -19,49 +11,6 @@ import java.util.function.Function;
  * @version 1.0
  */
 public interface Task extends Runnable, Serializable {
-    /**
-     * Factories to construct tasks from uri, all uri task implementations should register here
-     */
-    Map<String, Function<URI, Task>> uriTaskFactories = new HashMap<>();
-    /**
-     * Factories to construct tasks from file, all file task implementations should register here
-     */
-    Map<String, Function<File, Task>> fileTaskFactories = new HashMap<>();
-
-    /**
-     * Construct a task from the given uri
-     *
-     * @param uri the uri used to construct task
-     * @return the constructed task
-     * @throws UnsupportedProtocolException if the given protocol is not supported
-     * @throws NullPointerException         if the given uri is null
-     */
-    static Task fromUri(URI uri) {
-        Objects.requireNonNull(uri);
-        if (!uriTaskFactories.containsKey(uri.getScheme()))
-            throw new UnsupportedProtocolException("protocol " + uri.getScheme() + " is not supported");
-        return uriTaskFactories.get(uri.getScheme()).apply(uri);
-    }
-
-    /**
-     * Construct a task from the given file
-     *
-     * @param file the file used to construct task
-     * @return the constructed task
-     * @throws UnsupportedProtocolException if the protocol is not supported
-     * @throws NullPointerException         if the given file is null
-     * @throws IllegalArgumentException     if the given is not a file, such as a directory
-     */
-    static Task fromFile(File file) {
-        Objects.requireNonNull(file);
-        if (!file.isFile()) throw new IllegalArgumentException("the file used to construct task cannot be directories");
-        String name = file.getName();
-        String suffix = name.substring(name.lastIndexOf('.'));
-        if (!fileTaskFactories.containsKey(suffix))
-            throw new UnsupportedProtocolException("protocol " + suffix + " is not supported");
-        return fileTaskFactories.get(suffix).apply(file);
-    }
-
     /**
      * Represent the status of task.
      */

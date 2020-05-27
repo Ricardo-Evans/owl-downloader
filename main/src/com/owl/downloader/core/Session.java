@@ -2,18 +2,20 @@ package com.owl.downloader.core;
 
 import com.owl.downloader.event.Dispatcher;
 import com.owl.downloader.event.Event;
+import com.owl.downloader.exception.UnsupportedProtocolException;
 import com.owl.downloader.io.IOScheduler;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
 import java.net.ProxySelector;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Objects;
+import java.net.URI;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Function;
 
 /**
  * Session is a singleton class used to manage all the tasks, session also holds some global configurations.
@@ -282,5 +284,53 @@ public final class Session implements Serializable {
                 if (instance == null) instance = this;
             }
         return instance;
+    }
+
+    /**
+     * Factories to construct tasks from uri, all uri task implementations should register here
+     */
+    private static final Map<String, Function<URI, Task>> uriTaskFactories = new HashMap<>();
+    /**
+     * Factories to construct tasks from file, all file task implementations should register here
+     */
+    private static final Map<String, Function<File, Task>> fileTaskFactories = new HashMap<>();
+
+    /**
+     * Construct a task from the given uri
+     *
+     * @param uri the uri used to construct task
+     * @return the constructed task
+     * @throws UnsupportedProtocolException if the given protocol is not supported
+     * @throws NullPointerException         if the given uri is null
+     */
+    public static Task fromUri(URI uri) {
+        Objects.requireNonNull(uri);
+        if (!uriTaskFactories.containsKey(uri.getScheme()))
+            throw new UnsupportedProtocolException("protocol " + uri.getScheme() + " is not supported");
+        return uriTaskFactories.get(uri.getScheme()).apply(uri);
+    }
+
+    /**
+     * Construct a task from the given file
+     *
+     * @param file the file used to construct task
+     * @return the constructed task
+     * @throws UnsupportedProtocolException if the protocol is not supported
+     * @throws NullPointerException         if the given file is null
+     * @throws IllegalArgumentException     if the given is not a file, such as a directory
+     */
+    public static Task fromFile(File file) {
+        Objects.requireNonNull(file);
+        if (!file.isFile()) throw new IllegalArgumentException("the file used to construct task cannot be directories");
+        String name = file.getName();
+        String suffix = name.substring(name.lastIndexOf('.'));
+        if (!fileTaskFactories.containsKey(suffix))
+            throw new UnsupportedProtocolException("protocol " + suffix + " is not supported");
+        return fileTaskFactories.get(suffix).apply(file);
+    }
+
+    static {
+        uriTaskFactories.put("http", HttpTask::new);
+        uriTaskFactories.put("https", HttpTask::new);
     }
 }

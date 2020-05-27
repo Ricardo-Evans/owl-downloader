@@ -42,11 +42,6 @@ public class HttpTask extends BaseTask implements Task {
     private long currentTime;
     private final List<FileData> files = new LinkedList<>();
 
-    static {
-        uriTaskFactories.put("http", HttpTask::new);
-        uriTaskFactories.put("https", HttpTask::new);
-    }
-
     public HttpTask(URI uri) {
         super(new File(uri.getPath()).getName());
         this.uri = uri;
