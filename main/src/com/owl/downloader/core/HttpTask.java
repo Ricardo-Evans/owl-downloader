@@ -6,10 +6,7 @@ import com.owl.downloader.util.MyX509TrustManager;
 import com.owl.downloader.util.SSLEngineUtil;
 
 import javax.net.ssl.*;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.RandomAccessFile;
+import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
@@ -21,6 +18,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 
 /**
@@ -114,8 +112,8 @@ public class HttpTask extends BaseTask implements Task {
 
         FileData.Block block;
         currentTime = System.currentTimeMillis();
-
-        while ((block = Objects.requireNonNull(blockSelector).select(availableBlocks)) != null) {
+        block = Objects.requireNonNull(blockSelector).select(availableBlocks);
+        while (true) {
             if (currentConnections < getMaximumConnections() && status() == Status.ACTIVE) {
                 ++currentConnections;
                 block.available = false;
@@ -124,10 +122,16 @@ public class HttpTask extends BaseTask implements Task {
                 } else {
                     createHttpsConnection(block);
                 }
+                try {
+                    block = Objects.requireNonNull(blockSelector).select(availableBlocks);
+                }catch (NoSuchElementException e){
+                    changeStatus(Status.COMPLETED);
+                    break;
+                }
             }
         }
 
-        changeStatus(Status.COMPLETED);
+
     }
 
     /**
@@ -164,7 +168,10 @@ public class HttpTask extends BaseTask implements Task {
      * Create connection for a block,send channels and buffers to IOScheduler.
      */
     private void createHttpConnection(FileData.Block block) {
-        try (SocketChannel socketChannel = SocketChannel.open()) {
+        try {
+//            System.out.println("offset:"+block.offset);
+//            System.out.println("length:"+block.length);
+            SocketChannel socketChannel = SocketChannel.open();
             socketChannel.configureBlocking(false);
 
             String host = uri.getHost();
@@ -178,8 +185,8 @@ public class HttpTask extends BaseTask implements Task {
 
             String requestMessage = ("GET " + path + " HTTP/1.1\r\n") +
                     "Host:" + host + "\r\n" +
-                    "Connection: close\r\n" +
                     "Range: bytes=" + block.offset + "-" + (block.length + block.offset - 1) + "\r\n" +
+                    "Connection: close\r\n" +
                     "\r\n";
             ByteBuffer requestBuffer = ByteBuffer.wrap(requestMessage.getBytes());
             while (!socketChannel.finishConnect()) {
@@ -187,8 +194,9 @@ public class HttpTask extends BaseTask implements Task {
             socketChannel.write(requestBuffer);
             skipHttpHeader(socketChannel);
 
-            FileChannel fileChannel = (new FileInputStream(getDirectory() + name())).getChannel().position(block.offset);
+            FileChannel fileChannel = (new FileOutputStream(getDirectory() + name())).getChannel().position(block.offset);
             ByteBuffer responseBuffer = ByteBuffer.allocate(16 * 1024);
+
 
             httpRead(socketChannel, fileChannel, responseBuffer);
 
@@ -198,6 +206,7 @@ public class HttpTask extends BaseTask implements Task {
     }
 
     private void createHttpsConnection(FileData.Block block) {
+        System.out.println("OffSet:" + block.offset);
         try {
             String host = uri.getHost();
             String path = uri.getPath();
@@ -259,7 +268,6 @@ public class HttpTask extends BaseTask implements Task {
             long lastTime = currentTime;
             currentTime = System.currentTimeMillis();
             downloadSpeed = size / (currentTime - lastTime) * 1000;//B/s
-            System.out.println(size);
             synchronized (this) {
                 adjustDownloadedLength(size);
             }
@@ -270,30 +278,35 @@ public class HttpTask extends BaseTask implements Task {
 
 
     private void httpRead(ReadableByteChannel readChannel, WritableByteChannel writeChannel, ByteBuffer buffer) {
-
-        IOCallback httpReadCallback = (Channel socketchannel, ByteBuffer responseBuffer, int size, Exception exception) -> {
-            long lastTime = currentTime;
-            currentTime = System.currentTimeMillis();
-            downloadSpeed = size / (currentTime - lastTime) * 1000;//B/s
-            System.out.println(size);
-            synchronized (this) {
-                adjustDownloadedLength(size);
-            }
+        IOCallback httpReadCallback = (Channel channel, ByteBuffer responseBuffer, int size, Exception exception) -> {
             if (size != -1) {
-                httpWrite((ReadableByteChannel) socketchannel, writeChannel, responseBuffer);
+                long lastTime = currentTime;
+                System.out.println(channel+" "+size);
+                currentTime = System.currentTimeMillis();
+                if (size != 0) {
+                    downloadSpeed = size * 1000 / (currentTime - lastTime + 1);
+                }//B/s
+                synchronized (this) {
+                    adjustDownloadedLength(size);
+                }
+                httpWrite(readChannel, writeChannel, buffer);
+
             } else {
+//                System.out.println("block complete");
                 --currentConnections;
             }
         };
+        buffer.clear();
         Objects.requireNonNull(ioScheduler).read(readChannel, buffer, httpReadCallback);
 
 
     }
 
     private void httpWrite(ReadableByteChannel readChannel, WritableByteChannel writeChannel, ByteBuffer buffer) {
-        IOCallback httpWriteCallback = (Channel fileChannel, ByteBuffer responseBuffer, int size, Exception exception) -> {
-            httpRead(readChannel, (WritableByteChannel) fileChannel, responseBuffer);
+        IOCallback httpWriteCallback = (Channel Channel, ByteBuffer responseBuffer, int size, Exception exception) -> {
+            httpRead(readChannel, writeChannel, buffer);
         };
+        buffer.flip();
         Objects.requireNonNull(ioScheduler).write(writeChannel, buffer, httpWriteCallback);
     }
 
