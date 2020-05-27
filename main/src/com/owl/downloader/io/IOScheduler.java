@@ -1,5 +1,6 @@
 package com.owl.downloader.io;
 
+import javax.net.ssl.SSLException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ReadableByteChannel;

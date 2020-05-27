@@ -35,7 +35,7 @@ public class HttpTask extends BaseTask implements Task {
     private String type;
     private String protocol;
     private final IOScheduler ioScheduler = IOScheduler.getInstance();
-    private long currentConnections;
+    private long currentConnections = 0;
     private long downloadSpeed = 0;
     private long downloadedLength = 0;
     private long totalLength = 0;
@@ -115,8 +115,12 @@ public class HttpTask extends BaseTask implements Task {
         createFile();
         FileData.BlockSelector blockSelector = FileData.BlockSelector.getDefault();
         List<FileData.Block> availableBlocks = files.get(0).getBlocks();  //need to change.
+
+        System.out.println(files.get(0).getFile().length());
+
+
         FileData.Block block;
-        currentConnections = System.currentTimeMillis();
+        currentTime = System.currentTimeMillis();
 
         while ((block = Objects.requireNonNull(blockSelector).select(availableBlocks)) != null) {
             if (currentConnections < getMaximumConnections() && status() == Status.ACTIVE) {
@@ -138,12 +142,7 @@ public class HttpTask extends BaseTask implements Task {
      */
     private void setHttpFileAttributes() throws IOException {
         HttpURLConnection httpConnection = null;
-        try {
-            httpConnection = (HttpURLConnection) this.uri.toURL().openConnection(proxy);
-        } catch (IOException e) {
-            changeStatus(Status.ERROR);
-            return;
-        }
+        httpConnection = (HttpURLConnection) this.uri.toURL().openConnection();
         httpConnection.connect();
         totalLength = httpConnection.getContentLength();
         type = httpConnection.getContentType();
@@ -176,7 +175,7 @@ public class HttpTask extends BaseTask implements Task {
             socketChannel.configureBlocking(false);
 
             String host = uri.getHost();
-            String Path = uri.getPath();
+            String path = uri.getPath();
             int port = uri.getPort();
             if (port == -1) {
                 port = 80;
@@ -184,16 +183,18 @@ public class HttpTask extends BaseTask implements Task {
             InetSocketAddress address = new InetSocketAddress(host, port);
             socketChannel.connect(address);
 
-            String requestMessage = ("GET " + Path + " HTTP/1.1\r\n") +
+            String requestMessage = ("GET " + path + " HTTP/1.1\r\n") +
                     "Host:" + host + "\r\n" +
                     "Connection: close\r\n" +
                     "Range: bytes=" + block.offset + "-" + (block.length + block.offset - 1) + "\r\n" +
                     "\r\n";
             ByteBuffer requestBuffer = ByteBuffer.wrap(requestMessage.getBytes());
+            while (!socketChannel.finishConnect()) {
+            }
             socketChannel.write(requestBuffer);
             skipHttpHeader(socketChannel);
 
-            FileChannel fileChannel = (new FileInputStream(getDirectory() + name() + "." + type)).getChannel().position(block.offset);
+            FileChannel fileChannel = (new FileInputStream(getDirectory() + name())).getChannel().position(block.offset);
             ByteBuffer responseBuffer = ByteBuffer.allocate(16 * 1024);
 
             httpRead(socketChannel, fileChannel, responseBuffer);
@@ -225,7 +226,7 @@ public class HttpTask extends BaseTask implements Task {
 
             SSLEngineUtil.sendRequest(host, port, path, sslEngine, myAppBuffer, myNetBuffer, socketChannel, block);
 
-            FileChannel fileChannel = (new FileInputStream(getDirectory() + name() + "." + type)).getChannel().position(block.offset);
+            FileChannel fileChannel = (new FileInputStream(getDirectory() + name())).getChannel().position(block.offset);
 
             httpsRead(socketChannel, fileChannel, peerNetBuffer, peerAppBuffer, sslEngine);
         } catch (Exception e) {
@@ -238,7 +239,11 @@ public class HttpTask extends BaseTask implements Task {
         IOCallback httpsReadCallback = (Channel socketchannel, ByteBuffer responseBuffer, int size, Exception exception) -> {
             if (size != -1) {
                 responseBuffer.flip();
-                SSLEngineResult res = sslEngine.unwrap(responseBuffer, appBuffer);
+                SSLEngineResult res = null;
+                try {
+                    res = sslEngine.unwrap(responseBuffer, appBuffer);
+                } catch (SSLException e) {
+                }
                 if (res.getStatus() == SSLEngineResult.Status.BUFFER_UNDERFLOW) {
                     responseBuffer.compact();
                     httpsRead((ReadableByteChannel) socketchannel, writeChannel, responseBuffer, appBuffer, sslEngine);
@@ -253,6 +258,7 @@ public class HttpTask extends BaseTask implements Task {
             }
         };
         Objects.requireNonNull(ioScheduler).read(readChannel, netBuffer, httpsReadCallback);
+
     }
 
     private void httpsWrite(ReadableByteChannel readChannel, WritableByteChannel writeChannel, ByteBuffer netBuffer, ByteBuffer appBuffer, SSLEngine sslEngine) {
@@ -264,10 +270,12 @@ public class HttpTask extends BaseTask implements Task {
 
 
     private void httpRead(ReadableByteChannel readChannel, WritableByteChannel writeChannel, ByteBuffer buffer) {
+
         IOCallback httpReadCallback = (Channel socketchannel, ByteBuffer responseBuffer, int size, Exception exception) -> {
             long lastTime = currentTime;
             currentTime = System.currentTimeMillis();
             downloadSpeed = size / (currentTime - lastTime) * 1000;//B/s
+            System.out.println(size);
             synchronized (this) {
                 adjustDownloadedLength(size);
             }
@@ -278,6 +286,8 @@ public class HttpTask extends BaseTask implements Task {
             }
         };
         Objects.requireNonNull(ioScheduler).read(readChannel, buffer, httpReadCallback);
+
+
     }
 
     private void httpWrite(ReadableByteChannel readChannel, WritableByteChannel writeChannel, ByteBuffer buffer) {
@@ -320,7 +330,7 @@ public class HttpTask extends BaseTask implements Task {
             }
             count++;
             appBuffer.position(count);
-        }else {
+        } else {
             appBuffer.position(0);
         }
     }
@@ -329,8 +339,14 @@ public class HttpTask extends BaseTask implements Task {
      * Create a fixed size file to store resource file.
      */
     private void createFile() {
-        File file = new File(getDirectory() + name() + "." + type);
+        File file = new File(getDirectory() + name());  //type
+        System.out.println(getDirectory() + name());
         if (!file.exists()) {
+            try {
+                file.createNewFile();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
             try (RandomAccessFile randomAccessFile = new RandomAccessFile(file, "rw")) {
                 randomAccessFile.setLength(totalLength);
             } catch (IOException e) {
