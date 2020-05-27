@@ -116,8 +116,6 @@ public class HttpTask extends BaseTask implements Task {
         FileData.BlockSelector blockSelector = FileData.BlockSelector.getDefault();
         List<FileData.Block> availableBlocks = files.get(0).getBlocks();  //need to change.
 
-        System.out.println(files.get(0).getFile().length());
-
 
         FileData.Block block;
         currentTime = System.currentTimeMillis();
@@ -263,7 +261,14 @@ public class HttpTask extends BaseTask implements Task {
 
     private void httpsWrite(ReadableByteChannel readChannel, WritableByteChannel writeChannel, ByteBuffer netBuffer, ByteBuffer appBuffer, SSLEngine sslEngine) {
         IOCallback httpsWriteCallback = (Channel fileChannel, ByteBuffer responseBuffer, int size, Exception exception) -> {
-            httpsRead(readChannel, (WritableByteChannel) fileChannel, responseBuffer, appBuffer, sslEngine);
+            long lastTime = currentTime;
+            currentTime = System.currentTimeMillis();
+            downloadSpeed = size / (currentTime - lastTime) * 1000;//B/s
+            System.out.println(size);
+            synchronized (this) {
+                adjustDownloadedLength(size);
+            }
+            httpsRead(readChannel, (WritableByteChannel) fileChannel, netBuffer, appBuffer, sslEngine);
         };
         Objects.requireNonNull(ioScheduler).write(writeChannel, appBuffer, httpsWriteCallback);
     }
@@ -340,7 +345,6 @@ public class HttpTask extends BaseTask implements Task {
      */
     private void createFile() {
         File file = new File(getDirectory() + name());  //type
-        System.out.println(getDirectory() + name());
         if (!file.exists()) {
             try {
                 file.createNewFile();
