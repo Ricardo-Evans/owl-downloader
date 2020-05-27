@@ -10,9 +10,8 @@ import java.net.ProxySelector;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.SynchronousQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -28,7 +27,7 @@ public final class Session implements Serializable {
     private static Session instance = null;
     private final List<Task> tasks = new LinkedList<>();
     private final ReadWriteLock tasksLock = new ReentrantReadWriteLock();
-    private ThreadPoolExecutor executor;
+    private ExecutorService executor;
     private int maxTasks = 5;
     private int keepaliveTime = 60;
     private ProxySelector proxySelector = ProxySelector.getDefault();
@@ -45,7 +44,7 @@ public final class Session implements Serializable {
      */
     public void start() throws IOException {
         IOScheduler.getInstance().start();
-        executor = new ThreadPoolExecutor(0, maxTasks, keepaliveTime, TimeUnit.SECONDS, new SynchronousQueue<>());
+        executor = Executors.newWorkStealingPool(maxTasks);
         tasks.stream().filter(task -> task.status() == Task.Status.ACTIVE).forEach(executor::execute);
         adjustActiveTaskCount();
     }
