@@ -52,7 +52,7 @@ public class FileData implements Serializable {
      * @return the blocks of the file
      */
     public List<Block> getBlocks() {
-        return List.copyOf(blocks);
+        return new LinkedList<>(blocks);
     }
 
     /**
@@ -106,10 +106,7 @@ public class FileData implements Serializable {
          * @return the default block selector
          */
         static BlockSelector getDefault() {
-            BlockSelector blockSelector = (List<Block> blocks1) -> {
-                return blocks1.stream().filter(block -> block.available).findAny().get();
-            };
-            return blockSelector;
+            return (List<Block> blocks) -> blocks.stream().filter(block -> !block.available).findAny().orElse(null);
         }
 
         /**
