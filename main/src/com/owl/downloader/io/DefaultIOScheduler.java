@@ -3,6 +3,7 @@ package com.owl.downloader.io;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
+import java.util.Iterator;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -20,12 +21,15 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
             try {
                 int count = selector.select();
                 if (count > 0) {
-                    for (SelectionKey key : selector.selectedKeys()) {
+                    Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
+                    while (iterator.hasNext()) {
+                        SelectionKey key = iterator.next();
                         Attachment attachment = (Attachment) key.attachment();
                         if (key.isReadable())
                             executor.execute(() -> doRead((ReadableByteChannel) key.channel(), attachment.buffer, attachment.callback));
                         if (key.isWritable())
                             executor.execute(() -> doWrite((WritableByteChannel) key.channel(), attachment.buffer, attachment.callback));
+                        iterator.remove();
                     }
                 }
             } catch (IOException e) {
