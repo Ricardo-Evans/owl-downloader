@@ -83,36 +83,36 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
     @Override
     public void read(ReadableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
         if (!running) throw new IllegalStateException();
-        if (channel instanceof SelectableChannel) {
-            try {
-                selector.wakeup();
-                synchronized (this) {
+        selector.wakeup();
+        synchronized (this) {
+            if (channel instanceof SelectableChannel) {
+                try {
                     ((SelectableChannel) channel).register(selector, SelectionKey.OP_READ, new Attachment(buffer, callback));
-                    notify();
+                } catch (ClosedChannelException e) {
+                    callback.callback(channel, buffer, 0, e);
                 }
-            } catch (ClosedChannelException e) {
-                callback.callback(channel, buffer, 0, e);
-            }
-        } else executor.execute(() -> doRead(channel, buffer, callback));
+            } else executor.execute(() -> doRead(channel, buffer, callback));
+            notify();
+        }
     }
 
     @Override
     public void write(WritableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
         if (!running) throw new IllegalStateException();
-        if (channel instanceof SelectableChannel) {
-            try {
-                selector.wakeup();
-                synchronized (this) {
+        selector.wakeup();
+        synchronized (this) {
+            if (channel instanceof SelectableChannel) {
+                try {
                     ((SelectableChannel) channel).register(selector, SelectionKey.OP_WRITE, new Attachment(buffer, callback));
-                    notify();
+                } catch (ClosedChannelException e) {
+                    callback.callback(channel, buffer, 0, e);
                 }
-            } catch (ClosedChannelException e) {
-                callback.callback(channel, buffer, 0, e);
-            }
-        } else executor.execute(() -> doWrite(channel, buffer, callback));
+            } else executor.execute(() -> doWrite(channel, buffer, callback));
+            notify();
+        }
     }
 
-    private void doRead(ReadableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
+    private static void doRead(ReadableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
         int size = 0;
         Exception exception = null;
         try {
@@ -124,7 +124,7 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
         }
     }
 
-    private void doWrite(WritableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
+    private static void doWrite(WritableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
         int size = 0;
         Exception exception = null;
         try {
