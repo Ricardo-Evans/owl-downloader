@@ -85,9 +85,11 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
         if (!running) throw new IllegalStateException();
         if (channel instanceof SelectableChannel) {
             try {
-                selector.wakeup();
-                ((SelectableChannel) channel).register(selector, SelectionKey.OP_READ, new Attachment(buffer, callback));
-                notify();
+                synchronized (this) {
+                    selector.wakeup();
+                    ((SelectableChannel) channel).register(selector, SelectionKey.OP_READ, new Attachment(buffer, callback));
+                    notify();
+                }
             } catch (ClosedChannelException e) {
                 callback.callback(channel, buffer, 0, e);
             }
@@ -99,9 +101,11 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
         if (!running) throw new IllegalStateException();
         if (channel instanceof SelectableChannel) {
             try {
-                selector.wakeup();
-                ((SelectableChannel) channel).register(selector, SelectionKey.OP_WRITE, new Attachment(buffer, callback));
-                notify();
+                synchronized (this) {
+                    selector.wakeup();
+                    ((SelectableChannel) channel).register(selector, SelectionKey.OP_WRITE, new Attachment(buffer, callback));
+                    notify();
+                }
             } catch (ClosedChannelException e) {
                 callback.callback(channel, buffer, 0, e);
             }
