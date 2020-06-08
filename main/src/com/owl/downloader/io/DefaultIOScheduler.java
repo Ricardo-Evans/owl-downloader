@@ -19,22 +19,20 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
         running = true;
         while (!Thread.currentThread().isInterrupted()) {
             try {
-                synchronized (this) {
-                    int count = selector.select();
-                    if (count > 0) {
-                        Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
-                        while (iterator.hasNext()) {
-                            SelectionKey key = iterator.next();
-                            Attachment attachment = (Attachment) key.attachment();
-                            if (key.isReadable())
-                                executor.execute(() -> doRead((ReadableByteChannel) key.channel(), attachment.buffer, attachment.callback));
-                            if (key.isWritable())
-                                executor.execute(() -> doWrite((WritableByteChannel) key.channel(), attachment.buffer, attachment.callback));
-                            iterator.remove();
-                        }
-                    } else wait();
+                int count = selector.select();
+                if (count > 0) {
+                    Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
+                    while (iterator.hasNext()) {
+                        SelectionKey key = iterator.next();
+                        Attachment attachment = (Attachment) key.attachment();
+                        if (key.isReadable())
+                            executor.execute(() -> doRead((ReadableByteChannel) key.channel(), attachment.buffer, attachment.callback));
+                        if (key.isWritable())
+                            executor.execute(() -> doWrite((WritableByteChannel) key.channel(), attachment.buffer, attachment.callback));
+                        iterator.remove();
+                    }
                 }
-            } catch (IOException | InterruptedException e) {
+            } catch (IOException e) {
                 e.printStackTrace();
             }
         }
@@ -81,35 +79,29 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
     }
 
     @Override
-    public void read(ReadableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
+    public synchronized void read(ReadableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
         if (!running) throw new IllegalStateException();
-        selector.wakeup();
-        synchronized (this) {
-            if (channel instanceof SelectableChannel) {
-                try {
-                    ((SelectableChannel) channel).register(selector, SelectionKey.OP_READ, new Attachment(buffer, callback));
-                } catch (ClosedChannelException e) {
-                    callback.callback(channel, buffer, 0, e);
-                }
-            } else executor.execute(() -> doRead(channel, buffer, callback));
-            notify();
-        }
+        if (channel instanceof SelectableChannel) {
+            try {
+                ((SelectableChannel) channel).register(selector, SelectionKey.OP_READ, new Attachment(buffer, callback));
+                selector.wakeup();
+            } catch (ClosedChannelException e) {
+                callback.callback(channel, buffer, 0, e);
+            }
+        } else executor.execute(() -> doRead(channel, buffer, callback));
     }
 
     @Override
-    public void write(WritableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
+    public synchronized void write(WritableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
         if (!running) throw new IllegalStateException();
-        selector.wakeup();
-        synchronized (this) {
-            if (channel instanceof SelectableChannel) {
-                try {
-                    ((SelectableChannel) channel).register(selector, SelectionKey.OP_WRITE, new Attachment(buffer, callback));
-                } catch (ClosedChannelException e) {
-                    callback.callback(channel, buffer, 0, e);
-                }
-            } else executor.execute(() -> doWrite(channel, buffer, callback));
-            notify();
-        }
+        if (channel instanceof SelectableChannel) {
+            try {
+                ((SelectableChannel) channel).register(selector, SelectionKey.OP_WRITE, new Attachment(buffer, callback));
+                selector.wakeup();
+            } catch (ClosedChannelException e) {
+                callback.callback(channel, buffer, 0, e);
+            }
+        } else executor.execute(() -> doWrite(channel, buffer, callback));
     }
 
     private static void doRead(ReadableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
