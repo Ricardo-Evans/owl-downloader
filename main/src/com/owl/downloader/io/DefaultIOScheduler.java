@@ -21,18 +21,20 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
             try {
                 int count = selector.select();
                 if (count > 0) {
-                    Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
-                    while (iterator.hasNext()) {
-                        SelectionKey key = iterator.next();
-                        Attachment attachment = (Attachment) key.attachment();
-                        if (key.isReadable())
-                            executor.execute(() -> doRead((ReadableByteChannel) key.channel(), attachment.buffer, attachment.callback));
-                        if (key.isWritable())
-                            executor.execute(() -> doWrite((WritableByteChannel) key.channel(), attachment.buffer, attachment.callback));
-                        iterator.remove();
-                        key.cancel();
+                    synchronized (this) {
+                        Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
+                        while (iterator.hasNext()) {
+                            SelectionKey key = iterator.next();
+                            Attachment attachment = (Attachment) key.attachment();
+                            if (key.isReadable())
+                                executor.execute(() -> doRead((ReadableByteChannel) key.channel(), attachment.buffer, attachment.callback));
+                            if (key.isWritable())
+                                executor.execute(() -> doWrite((WritableByteChannel) key.channel(), attachment.buffer, attachment.callback));
+                            iterator.remove();
+                            key.cancel();
+                        }
+                        selector.selectNow();
                     }
-                    selector.selectNow();
                 }
             } catch (IOException e) {
                 e.printStackTrace();
@@ -85,8 +87,10 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
         if (!running) throw new IllegalStateException();
         if (channel instanceof SelectableChannel) {
             try {
-                ((SelectableChannel) channel).register(selector, SelectionKey.OP_READ, new Attachment(buffer, callback));
-                selector.wakeup();
+                synchronized (this) {
+                    ((SelectableChannel) channel).register(selector, SelectionKey.OP_READ, new Attachment(buffer, callback));
+                    selector.wakeup();
+                }
             } catch (ClosedChannelException e) {
                 callback.callback(channel, buffer, 0, e);
             }
@@ -98,8 +102,10 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
         if (!running) throw new IllegalStateException();
         if (channel instanceof SelectableChannel) {
             try {
-                ((SelectableChannel) channel).register(selector, SelectionKey.OP_WRITE, new Attachment(buffer, callback));
-                selector.wakeup();
+                synchronized (this) {
+                    ((SelectableChannel) channel).register(selector, SelectionKey.OP_WRITE, new Attachment(buffer, callback));
+                    selector.wakeup();
+                }
             } catch (ClosedChannelException e) {
                 callback.callback(channel, buffer, 0, e);
             }
