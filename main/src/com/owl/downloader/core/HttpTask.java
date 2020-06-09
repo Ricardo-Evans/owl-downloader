@@ -13,6 +13,7 @@ import java.net.Proxy;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
+import java.nio.file.Paths;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
@@ -20,6 +21,8 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Task that downloads http url
@@ -39,6 +42,7 @@ public class HttpTask extends BaseTask implements Task {
     private long totalLength = 0;
     private long currentTime;
     private final List<FileData> files = new LinkedList<>();
+    private ExecutorService executor = Executors.newWorkStealingPool();
 
     public HttpTask(URI uri) {
         super(new File(uri.getPath()).getName());
@@ -104,29 +108,27 @@ public class HttpTask extends BaseTask implements Task {
                 return;
             }
         }
-
         createFile();
         FileData.BlockSelector blockSelector = FileData.BlockSelector.getDefault();
         List<FileData.Block> availableBlocks = files.get(0).getBlocks();  //need to change.
-
-
         FileData.Block block;
         currentTime = System.currentTimeMillis();
-        block = Objects.requireNonNull(blockSelector).select(availableBlocks);
         while (true) {
+            try {
+                block = Objects.requireNonNull(blockSelector).select(availableBlocks);
+            } catch (NoSuchElementException e) {
+                changeStatus(Status.COMPLETED);
+                break;
+            }
             if (currentConnections < getMaximumConnections() && status() == Status.ACTIVE) {
-                ++currentConnections;
-                block.available = false;
+                synchronized (this) {
+                    ++currentConnections;
+                    block.available = false;
+                }
                 if (protocol.equals("http")) {
                     createHttpConnection(block);
                 } else {
                     createHttpsConnection(block);
-                }
-                try {
-                    block = Objects.requireNonNull(blockSelector).select(availableBlocks);
-                }catch (NoSuchElementException e){
-                    changeStatus(Status.COMPLETED);
-                    break;
                 }
             }
         }
@@ -183,6 +185,7 @@ public class HttpTask extends BaseTask implements Task {
             InetSocketAddress address = new InetSocketAddress(host, port);
             socketChannel.connect(address);
 
+
             String requestMessage = ("GET " + path + " HTTP/1.1\r\n") +
                     "Host:" + host + "\r\n" +
                     "Range: bytes=" + block.offset + "-" + (block.length + block.offset - 1) + "\r\n" +
@@ -194,9 +197,11 @@ public class HttpTask extends BaseTask implements Task {
             socketChannel.write(requestBuffer);
             skipHttpHeader(socketChannel);
 
-            FileChannel fileChannel = (new FileOutputStream(getDirectory() + name())).getChannel().position(block.offset);
-            ByteBuffer responseBuffer = ByteBuffer.allocate(16 * 1024);
+            RandomAccessFile randomAccessFile = new RandomAccessFile(files.get(0).getFile(), "rw");
+            FileChannel fileChannel = randomAccessFile.getChannel();
 
+            fileChannel.position(block.offset);
+            ByteBuffer responseBuffer = ByteBuffer.allocateDirect(64 * 1024);
 
             httpRead(socketChannel, fileChannel, responseBuffer);
 
@@ -228,7 +233,9 @@ public class HttpTask extends BaseTask implements Task {
 
             SSLEngineUtil.sendRequest(host, port, path, sslEngine, myAppBuffer, myNetBuffer, socketChannel, block);
 
-            FileChannel fileChannel = (new FileInputStream(getDirectory() + name())).getChannel().position(block.offset);
+            RandomAccessFile randomAccessFile = new RandomAccessFile(files.get(0).getFile(), "rw");
+            FileChannel fileChannel = randomAccessFile.getChannel();
+            fileChannel.position(block.offset);
 
             httpsRead(socketChannel, fileChannel, peerNetBuffer, peerAppBuffer, sslEngine);
         } catch (Exception e) {
@@ -240,22 +247,34 @@ public class HttpTask extends BaseTask implements Task {
     private void httpsRead(ReadableByteChannel readChannel, WritableByteChannel writeChannel, ByteBuffer netBuffer, ByteBuffer appBuffer, SSLEngine sslEngine) {
         IOCallback httpsReadCallback = (Channel socketchannel, ByteBuffer responseBuffer, int size, Exception exception) -> {
             if (size != -1) {
-                responseBuffer.flip();
-                SSLEngineResult res = null;
-                try {
-                    res = sslEngine.unwrap(responseBuffer, appBuffer);
-                } catch (SSLException e) {
-                }
-                if (res.getStatus() == SSLEngineResult.Status.BUFFER_UNDERFLOW) {
-                    responseBuffer.compact();
-                    httpsRead((ReadableByteChannel) socketchannel, writeChannel, responseBuffer, appBuffer, sslEngine);
-                }
-                if (res.getStatus() == SSLEngineResult.Status.OK) {
-                    responseBuffer.compact();
-                    skipHttpsHeader(appBuffer);
-                    httpsWrite((ReadableByteChannel) socketchannel, writeChannel, appBuffer, appBuffer, sslEngine);
+                if (size > 0) {
+                    netBuffer.flip();
+                    SSLEngineResult res = null;
+                    try {
+                        res = sslEngine.unwrap(netBuffer, appBuffer);
+                    } catch (SSLException e) {
+                        e.printStackTrace();
+                    }
+                    if (Objects.requireNonNull(res).getStatus() == SSLEngineResult.Status.BUFFER_UNDERFLOW) {
+                        netBuffer.compact();
+                        httpsRead(readChannel, writeChannel, netBuffer, appBuffer, sslEngine);
+                    }
+                    if (res.getStatus() == SSLEngineResult.Status.OK) {
+                        netBuffer.compact();
+                        appBuffer.flip();
+                        skipHttpsHeader(appBuffer);
+                        httpsWrite(readChannel, writeChannel, appBuffer, appBuffer, sslEngine);
+                    }
+                } else {
+                    httpsRead(readChannel, writeChannel, netBuffer, appBuffer, sslEngine);
                 }
             } else {
+                try {
+                    readChannel.close();
+                    writeChannel.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
                 --currentConnections;
             }
         };
@@ -271,7 +290,11 @@ public class HttpTask extends BaseTask implements Task {
             synchronized (this) {
                 adjustDownloadedLength(size);
             }
-            httpsRead(readChannel, (WritableByteChannel) fileChannel, netBuffer, appBuffer, sslEngine);
+            while (appBuffer.hasRemaining()) {
+                httpsWrite(readChannel, writeChannel, netBuffer, appBuffer, sslEngine);
+            }
+            appBuffer.clear();
+            httpsRead(readChannel, writeChannel, netBuffer, appBuffer, sslEngine);
         };
         Objects.requireNonNull(ioScheduler).write(writeChannel, appBuffer, httpsWriteCallback);
     }
@@ -279,9 +302,9 @@ public class HttpTask extends BaseTask implements Task {
 
     private void httpRead(ReadableByteChannel readChannel, WritableByteChannel writeChannel, ByteBuffer buffer) {
         IOCallback httpReadCallback = (Channel channel, ByteBuffer responseBuffer, int size, Exception exception) -> {
+            buffer.flip();
             if (size != -1) {
                 long lastTime = currentTime;
-                System.out.println(channel+" "+size);
                 currentTime = System.currentTimeMillis();
                 if (size != 0) {
                     downloadSpeed = size * 1000 / (currentTime - lastTime + 1);
@@ -290,23 +313,25 @@ public class HttpTask extends BaseTask implements Task {
                     adjustDownloadedLength(size);
                 }
                 httpWrite(readChannel, writeChannel, buffer);
-
             } else {
 //                System.out.println("block complete");
+                try {
+                    readChannel.close();
+                    writeChannel.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
                 --currentConnections;
             }
         };
-        buffer.clear();
         Objects.requireNonNull(ioScheduler).read(readChannel, buffer, httpReadCallback);
-
-
     }
 
     private void httpWrite(ReadableByteChannel readChannel, WritableByteChannel writeChannel, ByteBuffer buffer) {
         IOCallback httpWriteCallback = (Channel Channel, ByteBuffer responseBuffer, int size, Exception exception) -> {
+            buffer.compact();
             httpRead(readChannel, writeChannel, buffer);
         };
-        buffer.flip();
         Objects.requireNonNull(ioScheduler).write(writeChannel, buffer, httpWriteCallback);
     }
 
@@ -341,7 +366,6 @@ public class HttpTask extends BaseTask implements Task {
                 lastByte = appBuffer.get(count);
                 count++;
             }
-            count++;
             appBuffer.position(count);
         } else {
             appBuffer.position(0);
@@ -353,6 +377,7 @@ public class HttpTask extends BaseTask implements Task {
      */
     private void createFile() {
         File file = new File(getDirectory() + name());  //type
+        System.out.println(getDirectory() + "/" + name());
         if (!file.exists()) {
             try {
                 file.createNewFile();
