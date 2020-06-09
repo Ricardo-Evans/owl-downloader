@@ -81,7 +81,7 @@ public abstract class BaseTask implements Task {
      * @param status    the target status
      * @param exception why status change
      */
-    protected final void changeStatus(Status status, Exception exception) {
+    protected synchronized final void changeStatus(Status status, Exception exception) {
         this.status = status;
         Dispatcher.getInstance().dispatch(EVENT_MAP.get(status), this, exception);
     }
