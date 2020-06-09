@@ -21,7 +21,7 @@ public abstract class BaseTask implements Task {
     private final String name;
     private int maximumConnections = Session.getInstance().getMaximumConnections();
     private String directory = Session.getInstance().getDirectory();
-    private int blockSize;
+    private int blockSize = Session.getInstance().getBlockSize();
     private ProxySelector proxySelector = Session.getInstance().getProxySelector();
 
     static {
