@@ -79,7 +79,7 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
     }
 
     @Override
-    public synchronized void read(ReadableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
+    public void read(ReadableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
         if (!running) throw new IllegalStateException();
         if (channel instanceof SelectableChannel) {
             try {
@@ -92,7 +92,7 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
     }
 
     @Override
-    public synchronized void write(WritableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
+    public void write(WritableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
         if (!running) throw new IllegalStateException();
         if (channel instanceof SelectableChannel) {
             try {
