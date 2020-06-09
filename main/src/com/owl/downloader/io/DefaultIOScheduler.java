@@ -30,7 +30,9 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
                         if (key.isWritable())
                             executor.execute(() -> doWrite((WritableByteChannel) key.channel(), attachment.buffer, attachment.callback));
                         iterator.remove();
+                        key.cancel();
                     }
+                    selector.selectNow();
                 }
             } catch (IOException e) {
                 e.printStackTrace();
