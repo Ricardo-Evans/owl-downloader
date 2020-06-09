@@ -43,13 +43,13 @@ public class HttpTask extends BaseTask implements Task {
     private long totalLength = 0;
     private long currentTime;
     private final List<FileData> files = new LinkedList<>();
-    private final ExecutorService executor = Executors.newWorkStealingPool();
 
     public HttpTask(URI uri) {
         super(new File(uri.getPath()).getName());
         this.uri = uri;
         this.protocol = uri.getScheme();
         this.proxy = getProxySelector().select(uri).get(0);
+        setBlockSize(1<<24);
         currentConnections = new AtomicInteger(0);
     }
 
@@ -256,7 +256,7 @@ public class HttpTask extends BaseTask implements Task {
                     try {
                         res = sslEngine.unwrap(netBuffer, appBuffer);
                     } catch (SSLException e) {
-                        e.printStackTrace();
+                        changeStatus(Status.ERROR,e);
                     }
                     if (Objects.requireNonNull(res).getStatus() == SSLEngineResult.Status.BUFFER_UNDERFLOW) {
                         netBuffer.compact();
@@ -277,7 +277,7 @@ public class HttpTask extends BaseTask implements Task {
                     readChannel.close();
                     writeChannel.close();
                 } catch (IOException e) {
-                    e.printStackTrace();
+                    changeStatus(Status.ERROR,e);
                 }
                 currentConnections.decrementAndGet();
             }
@@ -363,7 +363,7 @@ public class HttpTask extends BaseTask implements Task {
         tempBuffer.clear();
         socketChannel.read(tempBuffer);
     }
-    
+
 
     private void skipHttpsHeader(ByteBuffer appBuffer) {
         int count = 0;
