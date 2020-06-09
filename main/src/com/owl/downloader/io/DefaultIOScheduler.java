@@ -24,6 +24,7 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
                     Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
                     while (iterator.hasNext()) {
                         SelectionKey key = iterator.next();
+                        key.cancel();
                         Attachment attachment = (Attachment) key.attachment();
                         if (key.isReadable())
                             executor.execute(() -> doRead((ReadableByteChannel) key.channel(), attachment.buffer, attachment.callback));
@@ -107,24 +108,28 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
     private static void doRead(ReadableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
         int size = 0;
         Exception exception = null;
-        try {
-            size = channel.read(buffer);
-        } catch (IOException e) {
-            exception = e;
-        } finally {
-            callback.callback(channel, buffer, size, exception);
+        synchronized (buffer) {
+            try {
+                size = channel.read(buffer);
+            } catch (IOException e) {
+                exception = e;
+            } finally {
+                callback.callback(channel, buffer, size, exception);
+            }
         }
     }
 
     private static void doWrite(WritableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
         int size = 0;
         Exception exception = null;
-        try {
-            size = channel.write(buffer);
-        } catch (IOException e) {
-            exception = e;
-        } finally {
-            callback.callback(channel, buffer, size, exception);
+        synchronized (buffer) {
+            try {
+                size = channel.write(buffer);
+            } catch (IOException e) {
+                exception = e;
+            } finally {
+                callback.callback(channel, buffer, size, exception);
+            }
         }
     }
 }
