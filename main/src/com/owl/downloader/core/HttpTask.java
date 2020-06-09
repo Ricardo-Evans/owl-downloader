@@ -23,6 +23,7 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Task that downloads http url
@@ -32,23 +33,24 @@ import java.util.concurrent.Executors;
  */
 public class HttpTask extends BaseTask implements Task {
     private final URI uri;
-    private Proxy proxy;
+    private final Proxy proxy;
     private String type;
-    private String protocol;
+    private final String protocol;
     private final IOScheduler ioScheduler = IOScheduler.getInstance();
-    private long currentConnections = 0;
+    public AtomicInteger currentConnections;
     private long downloadSpeed = 0;
     private long downloadedLength = 0;
     private long totalLength = 0;
     private long currentTime;
     private final List<FileData> files = new LinkedList<>();
-    private ExecutorService executor = Executors.newWorkStealingPool();
+    private final ExecutorService executor = Executors.newWorkStealingPool();
 
     public HttpTask(URI uri) {
         super(new File(uri.getPath()).getName());
         this.uri = uri;
         this.protocol = uri.getScheme();
         this.proxy = getProxySelector().select(uri).get(0);
+        currentConnections = new AtomicInteger(0);
     }
 
     /**
@@ -114,15 +116,16 @@ public class HttpTask extends BaseTask implements Task {
         FileData.Block block;
         currentTime = System.currentTimeMillis();
         while (true) {
+//            System.out.println(currentConnections.get());
             try {
                 block = Objects.requireNonNull(blockSelector).select(availableBlocks);
             } catch (NoSuchElementException e) {
                 changeStatus(Status.COMPLETED);
                 break;
             }
-            if (currentConnections < getMaximumConnections() && status() == Status.ACTIVE) {
+            if (currentConnections.get() < getMaximumConnections() && status() == Status.ACTIVE) {
+                currentConnections.incrementAndGet();
                 synchronized (this) {
-                    ++currentConnections;
                     block.available = false;
                 }
                 if (protocol.equals("http")) {
@@ -263,9 +266,10 @@ public class HttpTask extends BaseTask implements Task {
                         netBuffer.compact();
                         appBuffer.flip();
                         skipHttpsHeader(appBuffer);
-                        httpsWrite(readChannel, writeChannel, appBuffer, appBuffer, sslEngine);
+                        httpsWrite(readChannel, writeChannel, netBuffer, appBuffer, sslEngine);
                     }
                 } else {
+                    netBuffer.compact();
                     httpsRead(readChannel, writeChannel, netBuffer, appBuffer, sslEngine);
                 }
             } else {
@@ -275,7 +279,7 @@ public class HttpTask extends BaseTask implements Task {
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
-                --currentConnections;
+                currentConnections.decrementAndGet();
             }
         };
         Objects.requireNonNull(ioScheduler).read(readChannel, netBuffer, httpsReadCallback);
@@ -286,12 +290,13 @@ public class HttpTask extends BaseTask implements Task {
         IOCallback httpsWriteCallback = (Channel fileChannel, ByteBuffer responseBuffer, int size, Exception exception) -> {
             long lastTime = currentTime;
             currentTime = System.currentTimeMillis();
-            downloadSpeed = size / (currentTime - lastTime) * 1000;//B/s
+            downloadSpeed = size / (currentTime - lastTime+1) * 1000;//B/s
             synchronized (this) {
                 adjustDownloadedLength(size);
             }
             while (appBuffer.hasRemaining()) {
                 httpsWrite(readChannel, writeChannel, netBuffer, appBuffer, sslEngine);
+
             }
             appBuffer.clear();
             httpsRead(readChannel, writeChannel, netBuffer, appBuffer, sslEngine);
@@ -302,26 +307,31 @@ public class HttpTask extends BaseTask implements Task {
 
     private void httpRead(ReadableByteChannel readChannel, WritableByteChannel writeChannel, ByteBuffer buffer) {
         IOCallback httpReadCallback = (Channel channel, ByteBuffer responseBuffer, int size, Exception exception) -> {
-            buffer.flip();
+            if (exception != null) {
+                exception.printStackTrace();
+                return;
+            }
             if (size != -1) {
                 long lastTime = currentTime;
                 currentTime = System.currentTimeMillis();
-                if (size != 0) {
-                    downloadSpeed = size * 1000 / (currentTime - lastTime + 1);
-                }//B/s
+
+//                System.out.println(size);
+                downloadSpeed = size * 1000 / (currentTime - lastTime + 1);
+                buffer.flip();
+                httpWrite(readChannel, writeChannel, buffer);
+
                 synchronized (this) {
                     adjustDownloadedLength(size);
                 }
-                httpWrite(readChannel, writeChannel, buffer);
             } else {
 //                System.out.println("block complete");
                 try {
+                    currentConnections.decrementAndGet();
                     readChannel.close();
                     writeChannel.close();
-                } catch (IOException e) {
+                } catch (Exception e) {
                     e.printStackTrace();
                 }
-                --currentConnections;
             }
         };
         Objects.requireNonNull(ioScheduler).read(readChannel, buffer, httpReadCallback);
@@ -353,6 +363,7 @@ public class HttpTask extends BaseTask implements Task {
         tempBuffer.clear();
         socketChannel.read(tempBuffer);
     }
+    
 
     private void skipHttpsHeader(ByteBuffer appBuffer) {
         int count = 0;
