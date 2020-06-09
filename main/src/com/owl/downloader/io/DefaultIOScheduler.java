@@ -24,13 +24,13 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
                     Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
                     while (iterator.hasNext()) {
                         SelectionKey key = iterator.next();
-                        key.cancel();
                         Attachment attachment = (Attachment) key.attachment();
                         if (key.isReadable())
                             executor.execute(() -> doRead((ReadableByteChannel) key.channel(), attachment.buffer, attachment.callback));
                         if (key.isWritable())
                             executor.execute(() -> doWrite((WritableByteChannel) key.channel(), attachment.buffer, attachment.callback));
                         iterator.remove();
+                        key.cancel();
                     }
                 }
             } catch (IOException e) {
