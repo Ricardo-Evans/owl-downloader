@@ -6,14 +6,15 @@ import com.owl.downloader.util.MyX509TrustManager;
 import com.owl.downloader.util.SSLEngineUtil;
 
 import javax.net.ssl.*;
-import java.io.*;
+import java.io.File;
+import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
-import java.nio.file.Paths;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
@@ -21,8 +22,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -49,7 +48,6 @@ public class HttpTask extends BaseTask implements Task {
         this.uri = uri;
         this.protocol = uri.getScheme();
         this.proxy = getProxySelector().select(uri).get(0);
-        setBlockSize(1<<24);
         currentConnections = new AtomicInteger(0);
     }
 
