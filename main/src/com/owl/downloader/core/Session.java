@@ -43,6 +43,8 @@ public final class Session implements Serializable {
 
     /**
      * Start the session, some initializations done here, all the tasks cannot be executed until the session is started
+     *
+     * @throws IOException if an io exception occur when open io module
      */
     public void start() throws IOException {
         IOScheduler.getInstance().start();
@@ -53,6 +55,8 @@ public final class Session implements Serializable {
 
     /**
      * Stop the session, release the resources
+     *
+     * @throws IOException if an io exception occur when close io module
      */
     public void stop() throws IOException {
         IOScheduler.getInstance().stop();

@@ -1,6 +1,5 @@
 package com.owl.downloader.io;
 
-import javax.net.ssl.SSLException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ReadableByteChannel;
@@ -26,11 +25,15 @@ public interface IOScheduler {
 
     /**
      * Start the IO scheduler so that it can accept io tasks
+     *
+     * @throws IOException if an io exception occur when initialize io
      */
     void start() throws IOException;
 
     /**
      * Stop the IO scheduler, release all related resources
+     *
+     * @throws IOException if an io exception occur when initialize io
      */
     void stop() throws IOException;
 
