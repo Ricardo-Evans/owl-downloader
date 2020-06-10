@@ -17,7 +17,6 @@ import java.nio.ByteBuffer;
 import java.nio.channels.*;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
-import java.security.NoSuchProviderException;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -148,13 +147,13 @@ public class HttpTask extends BaseTask implements Task {
         type = httpConnection.getContentType();
     }
 
-    private void setHttpsFileAttributes() throws NoSuchProviderException, NoSuchAlgorithmException, KeyManagementException, IOException {
-        SSLContext sslcontext = SSLContext.getInstance("SSL", "SunJSSE");
+    private void setHttpsFileAttributes() throws NoSuchAlgorithmException, KeyManagementException, IOException {
+        SSLContext sslcontext = SSLContext.getInstance("SSL");
         sslcontext.init(null, new TrustManager[]{new MyX509TrustManager()}, new java.security.SecureRandom());
-        HostnameVerifier ignoreHostnameVerifier = (s, sslsession) -> true;
+        HostnameVerifier ignoreHostnameVerifier = (s, sslSession) -> true;
         HttpsURLConnection.setDefaultHostnameVerifier(ignoreHostnameVerifier);
         HttpsURLConnection.setDefaultSSLSocketFactory(sslcontext.getSocketFactory());
-        HttpsURLConnection httpsConnection = null;
+        HttpsURLConnection httpsConnection;
         try {
             httpsConnection = (HttpsURLConnection) this.uri.toURL().openConnection(proxy);
         } catch (IOException e) {
@@ -254,7 +253,7 @@ public class HttpTask extends BaseTask implements Task {
                     try {
                         res = sslEngine.unwrap(netBuffer, appBuffer);
                     } catch (SSLException e) {
-                        changeStatus(Status.ERROR,e);
+                        changeStatus(Status.ERROR, e);
                     }
                     if (Objects.requireNonNull(res).getStatus() == SSLEngineResult.Status.BUFFER_UNDERFLOW) {
                         netBuffer.compact();
@@ -275,7 +274,7 @@ public class HttpTask extends BaseTask implements Task {
                     readChannel.close();
                     writeChannel.close();
                 } catch (IOException e) {
-                    changeStatus(Status.ERROR,e);
+                    changeStatus(Status.ERROR, e);
                 }
                 currentConnections.decrementAndGet();
             }
@@ -288,7 +287,7 @@ public class HttpTask extends BaseTask implements Task {
         IOCallback httpsWriteCallback = (Channel fileChannel, ByteBuffer responseBuffer, int size, Exception exception) -> {
             long lastTime = currentTime;
             currentTime = System.currentTimeMillis();
-            downloadSpeed = size / (currentTime - lastTime+1) * 1000;//B/s
+            downloadSpeed = size / (currentTime - lastTime + 1) * 1000;//B/s
             synchronized (this) {
                 adjustDownloadedLength(size);
             }
@@ -385,7 +384,7 @@ public class HttpTask extends BaseTask implements Task {
      * Create a fixed size file to store resource file.
      */
     private void createFile() {
-        File file = new File(getDirectory() + name());  //type
+        File file = new File(getDirectory(), name());  //type
         System.out.println(getDirectory() + "/" + name());
         if (!file.exists()) {
             try {
@@ -399,7 +398,7 @@ public class HttpTask extends BaseTask implements Task {
                 changeStatus(Status.ERROR, e);
             }
         }
-        this.files.add(new FileData(file, (int) getBlockSize()));
+        this.files.add(new FileData(file, getBlockSize()));
     }
 
 
