@@ -13,7 +13,7 @@ public final class Util {
      * @return the current speed, in bytes/second
      */
     public static long calculateSpeed(long delta, long time, long speed) {
-        long origin_speed = 1000 * delta / (time + 1);
+        long origin_speed = (long) (1000 * delta / (time + 0.001));
         double ratio = 0.5;
         return (long) (ratio * origin_speed + (1 - ratio) * speed);
     }

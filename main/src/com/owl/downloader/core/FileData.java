@@ -74,7 +74,7 @@ public class FileData implements Serializable {
         /**
          * Whether this block is available
          */
-        public boolean available = true;
+        public volatile boolean available = true;
 
         public Block(long offset, long length) {
             this.offset = offset;
@@ -100,21 +100,15 @@ public class FileData implements Serializable {
      */
     @FunctionalInterface
     public interface BlockSelector {
+        BlockSelector defaultSelector = blocks -> blocks.stream().filter(block -> block.available).findAny().orElse(null);
+
         /**
          * The default block selector
          *
          * @return the default block selector
          */
         static BlockSelector getDefault() {
-            BlockSelector blockSelector = (List<Block> blocks1) -> {
-                Block block0 = null;
-                try {
-                    block0=blocks1.stream().filter(block -> block.available).findAny().get();
-                }catch (Exception ignored){
-                }
-                return block0;
-            };
-            return blockSelector;
+            return defaultSelector;
         }
 
         /**

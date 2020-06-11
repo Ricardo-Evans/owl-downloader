@@ -151,9 +151,7 @@ public class HttpTask extends BaseTask implements Task {
                 }
             }
             currentConnections.incrementAndGet();
-            synchronized (this) {
-                block.available = false;
-            }
+            block.available = false;
             if (protocol.equals("http")) {
                 createHttpConnection(block);
             } else {
