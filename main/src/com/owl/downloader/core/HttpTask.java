@@ -22,9 +22,9 @@ import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * Task that downloads http url
@@ -39,11 +39,12 @@ public class HttpTask extends BaseTask implements Task {
     private final String protocol;
     private final IOScheduler ioScheduler = IOScheduler.getInstance();
     public AtomicInteger currentConnections;
-    private double downloadSpeed = 0;
+    private long downloadSpeed = 0;
     private long lastDownloadedLength = 0;
     private long downloadedLength = 0;
     private long totalLength = 0;
     private long currentTime = 0;
+    private final LongAdder downloadLengthAdder = new LongAdder();
     private final Logger logger = Logger.getInstance();
     private final List<FileData> files = new LinkedList<>();
 
@@ -55,24 +56,15 @@ public class HttpTask extends BaseTask implements Task {
         currentConnections = new AtomicInteger(0);
     }
 
-    /**
-     * Adjust downloaded length,always occurs during callback.
-     */
-    private void adjustDownloadedLength(int size) {
-        downloadedLength += size;
-    }
-
     @Override
     public long downloadSpeed() {
-        synchronized (this) {
-            long lastTime = currentTime;
-            currentTime = System.currentTimeMillis();
-            System.out.println(downloadedLength - lastDownloadedLength);
-            System.out.println(currentTime - lastTime);
-            downloadSpeed = Util.calculateSpeed(downloadedLength - lastDownloadedLength, currentTime - lastTime, downloadSpeed);
-            lastDownloadedLength = downloadedLength;
-        }
-        return (long) downloadSpeed;
+        long lastTime = currentTime;
+        currentTime = System.currentTimeMillis();
+        System.out.println(downloadedLength - lastDownloadedLength);
+        System.out.println(currentTime - lastTime);
+        downloadSpeed = Util.calculateSpeed(downloadedLength() - lastDownloadedLength, currentTime - lastTime, downloadSpeed);
+        lastDownloadedLength = downloadedLength;
+        return downloadSpeed;
     }
 
     @Override
@@ -82,7 +74,7 @@ public class HttpTask extends BaseTask implements Task {
 
     @Override
     public long downloadedLength() {
-        return downloadedLength;
+        return downloadedLength += downloadLengthAdder.sumThenReset();
     }
 
     @Override
@@ -170,12 +162,11 @@ public class HttpTask extends BaseTask implements Task {
         }
     }
 
-
     /**
      * Set Http source file's length and type.
      */
     private void setHttpFileAttributes() throws IOException {
-        HttpURLConnection httpConnection = null;
+        HttpURLConnection httpConnection;
         httpConnection = (HttpURLConnection) this.uri.toURL().openConnection();
         httpConnection.connect();
         totalLength = httpConnection.getContentLength();
@@ -207,8 +198,6 @@ public class HttpTask extends BaseTask implements Task {
      */
     private void createHttpConnection(FileData.Block block) {
         try {
-//            System.out.println("offset:"+block.offset);
-//            System.out.println("length:"+block.length);
             SocketChannel socketChannel = SocketChannel.open();
             socketChannel.configureBlocking(false);
 
@@ -228,7 +217,9 @@ public class HttpTask extends BaseTask implements Task {
                     "Connection: close\r\n" +
                     "\r\n";
             ByteBuffer requestBuffer = ByteBuffer.wrap(requestMessage.getBytes());
-            while (!socketChannel.finishConnect()) {
+            boolean connected = socketChannel.finishConnect();
+            while (!connected) {
+                connected = socketChannel.finishConnect();
             }
             socketChannel.write(requestBuffer);
             skipHttpHeader(socketChannel);
@@ -247,7 +238,6 @@ public class HttpTask extends BaseTask implements Task {
     }
 
     private void createHttpsConnection(FileData.Block block) {
-//        System.out.println("OffSet:" + block.offset);
         try {
             String host = uri.getHost();
             String path = uri.getPath();
@@ -257,7 +247,9 @@ public class HttpTask extends BaseTask implements Task {
             }
             SSLEngine sslEngine = SSLEngineUtil.prepareEngine(host, port);
             SocketChannel socketChannel = SSLEngineUtil.prepareChannel(host, port);
-            while (!socketChannel.finishConnect()) {
+            boolean connected = socketChannel.finishConnect();
+            while (!connected) {
+                connected = socketChannel.finishConnect();
             }
             SSLSession session = sslEngine.getSession();
             ByteBuffer myAppBuffer = ByteBuffer.allocate(session.getApplicationBufferSize());
@@ -326,12 +318,9 @@ public class HttpTask extends BaseTask implements Task {
 
     private void httpsWrite(ReadableByteChannel readChannel, WritableByteChannel writeChannel, ByteBuffer netBuffer, ByteBuffer appBuffer, SSLEngine sslEngine) {
         IOCallback httpsWriteCallback = (Channel fileChannel, ByteBuffer responseBuffer, int size, Exception exception) -> {
-            synchronized (this) {
-                adjustDownloadedLength(size);
-            }
+            downloadLengthAdder.add(size);
             while (appBuffer.hasRemaining()) {
                 httpsWrite(readChannel, writeChannel, netBuffer, appBuffer, sslEngine);
-
             }
             appBuffer.clear();
             httpsRead(readChannel, writeChannel, netBuffer, appBuffer, sslEngine);
@@ -352,9 +341,7 @@ public class HttpTask extends BaseTask implements Task {
                 buffer.flip();
                 httpWrite(readChannel, writeChannel, buffer);
 
-                synchronized (this) {
-                    adjustDownloadedLength(size);
-                }
+                downloadLengthAdder.add(size);
             } else {
 //                System.out.println("block complete");
                 try {
