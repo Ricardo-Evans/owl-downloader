@@ -19,15 +19,11 @@ public class SSLEngineUtil {
         char[] passphrase = "changeit".toCharArray();
 
         SSLContext ctx = SSLContext.getInstance("TLSv1.2");
-        String algorithm = Security.getProperty("ssl.KeyManagerFactory.algorithm");
-        if (algorithm == null) {
-            algorithm = "SunX509";
-        }
-        KeyManagerFactory kmf = KeyManagerFactory.getInstance(algorithm);
-        KeyStore ks = ks = KeyStore.getInstance("JKS");
 
-        String JAVA_HOME = System.getenv("JAVA_HOME");
-        ks.load(new FileInputStream(JAVA_HOME + "/lib/security/cacerts"), passphrase);
+        KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+        KeyStore ks =  KeyStore.getInstance(KeyStore.getDefaultType());
+
+        ks.load(null);
 
         kmf.init(ks, passphrase);
         ctx.init(kmf.getKeyManagers(), null, null);
