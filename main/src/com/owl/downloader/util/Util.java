@@ -7,12 +7,15 @@ public final class Util {
     /**
      * Calculate speed, in bytes/second
      *
-     * @param delta the delta data size
-     * @param time  the time spend
-     * @param speed the speed calculated last time
-     * @return the current speed
+     * @param delta the delta data size (bype)
+     * @param time  the time spend (ms)
+     * @param speed the speed calculated last time (bype/s)
+     * @return the current speed (byte/s)
      */
     public static long calculateSpeed(long delta, long time, long speed) {
-        throw new RuntimeException("not implemented yet");
+        //throw new RuntimeException("not implemented yet");
+        long origin_speed = 1000*delta/(time+1);
+        long ratio = 1 / (1+speed*origin_speed);
+        return ratio * origin_speed + (1-ratio) * speed;
     }
 }
