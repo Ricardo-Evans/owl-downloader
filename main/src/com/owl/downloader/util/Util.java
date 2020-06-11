@@ -7,9 +7,9 @@ public final class Util {
     /**
      * Calculate speed, in bytes/second
      *
-     * @param delta the delta data size (bype)
+     * @param delta the delta data size (byte)
      * @param time  the time spend (ms)
-     * @param speed the speed calculated last time (bype/s)
+     * @param speed the speed calculated last time (byte/s)
      * @return the current speed (byte/s)
      */
     public static long calculateSpeed(long delta, long time, long speed) {
