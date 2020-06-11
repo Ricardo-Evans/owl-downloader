@@ -14,20 +14,17 @@ import java.nio.channels.SocketChannel;
 import java.security.KeyStore;
 import java.security.Security;
 
+
 public class SSLEngineUtil {
     public static SSLEngine prepareEngine(String host, int port) throws Exception {
         char[] passphrase = "changeit".toCharArray();
 
         SSLContext ctx = SSLContext.getInstance("TLSv1.2");
-        String algorithm = Security.getProperty("ssl.KeyManagerFactory.algorithm");
-        if (algorithm == null) {
-            algorithm = "SunX509";
-        }
-        KeyManagerFactory kmf = KeyManagerFactory.getInstance(algorithm);
-        KeyStore ks = ks = KeyStore.getInstance("JKS");
 
-        String JAVA_HOME = System.getenv("JAVA_HOME");
-        ks.load(new FileInputStream(JAVA_HOME + "/lib/security/cacerts"), passphrase);
+        KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+        KeyStore ks =  KeyStore.getInstance(KeyStore.getDefaultType());
+
+        ks.load(null);
 
         kmf.init(ks, passphrase);
         ctx.init(kmf.getKeyManagers(), null, null);
@@ -135,7 +132,7 @@ public class SSLEngineUtil {
             throws Exception {
         String header = ("GET " + path + " HTTP/1.1\r\n") +
                 "Host: " + host + "\r\n" +
-                "Connection: keep-alive\r\n" +
+                "Connection: close\r\n" +
                 "Range: bytes=" + block.offset + "-" + (block.length + block.offset - 1) + "\r\n" +
                 "\r\n";
         myAppData.put(header.getBytes());

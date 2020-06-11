@@ -4,6 +4,7 @@ import com.owl.downloader.event.Dispatcher;
 import com.owl.downloader.event.Event;
 import com.owl.downloader.exception.UnsupportedProtocolException;
 import com.owl.downloader.io.IOScheduler;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
@@ -34,7 +35,7 @@ public final class Session implements Serializable {
     private ProxySelector proxySelector = ProxySelector.getDefault();
     private String directory = System.getProperty("user.dir");
     private int maximumConnections = 5;
-    private int blockSize = 1 << 14; // 16KB
+    private int blockSize = 1 << 22; // 4MB
 
     private Session() {
         Dispatcher.getInstance().attach(this::onTaskStatusChange);
@@ -42,6 +43,8 @@ public final class Session implements Serializable {
 
     /**
      * Start the session, some initializations done here, all the tasks cannot be executed until the session is started
+     *
+     * @throws IOException if an io exception occur when open io module
      */
     public void start() throws IOException {
         IOScheduler.getInstance().start();
@@ -52,6 +55,8 @@ public final class Session implements Serializable {
 
     /**
      * Stop the session, release the resources
+     *
+     * @throws IOException if an io exception occur when close io module
      */
     public void stop() throws IOException {
         IOScheduler.getInstance().stop();

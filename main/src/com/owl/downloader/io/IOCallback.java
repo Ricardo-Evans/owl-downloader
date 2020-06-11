@@ -21,3 +21,4 @@ public interface IOCallback {
      */
     void callback(Channel channel, ByteBuffer buffer, int size, Exception exception);
 }
+

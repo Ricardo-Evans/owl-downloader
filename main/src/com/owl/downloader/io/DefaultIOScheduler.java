@@ -1,16 +1,14 @@
 package com.owl.downloader.io;
 
+import com.owl.downloader.log.Logger;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
+import java.util.Iterator;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/**
- * Default IOScheduler implements the IOScheduler interface
- *
- * @version 1.0
- */
 public class DefaultIOScheduler implements IOScheduler, Runnable {
     private static DefaultIOScheduler scheduler = null;
     private Selector selector = null;
@@ -24,13 +22,20 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
         while (!Thread.currentThread().isInterrupted()) {
             try {
                 int count = selector.select();
-                if (count > 0) {
-                    for (SelectionKey key : selector.selectedKeys()) {
-                        Attachment attachment = (Attachment) key.attachment();
-                        if (key.isReadable())
-                            executor.execute(() -> doRead((ReadableByteChannel) key.channel(), attachment.buffer, attachment.callback));
-                        if (key.isWritable())
-                            executor.execute(() -> doWrite((WritableByteChannel) key.channel(), attachment.buffer, attachment.callback));
+                synchronized (this) {
+                    if (count > 0) {
+                        Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
+                        while (iterator.hasNext()) {
+                            SelectionKey key = iterator.next();
+                            Attachment attachment = (Attachment) key.attachment();
+                            if (key.isReadable())
+                                executor.execute(() -> doRead((ReadableByteChannel) key.channel(), attachment.buffer, attachment.callback));
+                            if (key.isWritable())
+                                executor.execute(() -> doWrite((WritableByteChannel) key.channel(), attachment.buffer, attachment.callback));
+                            iterator.remove();
+                            key.cancel();
+                        }
+                        selector.selectNow();
                     }
                 }
             } catch (IOException e) {
@@ -79,69 +84,62 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
         selector = null;
     }
 
-    /**
-     * Read data from the given channel and put to the given buffer, call the callback once io finish (at least one byte read or io fail)
-     * <p>Especially, if the given channel is a selectable channel, a selector is used to wait until the channel is ready</p>
-     * If the given channel is a selectable channel, it should be previously configured to non-blocking by the specific Task.
-     *
-     * @param channel  the source channel
-     * @param buffer   the destination data buffer
-     * @param callback io callback
-     */
     @Override
     public void read(ReadableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
         if (!running) throw new IllegalStateException();
         if (channel instanceof SelectableChannel) {
             try {
-                ((SelectableChannel) channel).register(selector, SelectionKey.OP_READ, new Attachment(buffer, callback));
+                synchronized (this) {
+                    selector.wakeup();
+                    ((SelectableChannel) channel).register(selector, SelectionKey.OP_READ, new Attachment(buffer, callback));
+                }
             } catch (ClosedChannelException e) {
                 callback.callback(channel, buffer, 0, e);
             }
         } else executor.execute(() -> doRead(channel, buffer, callback));
     }
 
-    /**
-     * Write data from the given buffer to the given channel, call the callback once io finish (at least one byte write or io fail)
-     * <p>Especially, if the given channel is a selectable channel, a selector is used to wait until the channel is ready</p>
-     * If the given channel is a selectable channel, it should be previously configured to non-blocking by the specific Task.
-     *
-     * @param channel  the destination channel
-     * @param buffer   the source data buffer
-     * @param callback io callback
-     */
     @Override
     public void write(WritableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
         if (!running) throw new IllegalStateException();
         if (channel instanceof SelectableChannel) {
             try {
-                ((SelectableChannel) channel).register(selector, SelectionKey.OP_WRITE, new Attachment(buffer, callback));
+                synchronized (this) {
+                    selector.wakeup();
+                    ((SelectableChannel) channel).register(selector, SelectionKey.OP_WRITE, new Attachment(buffer, callback));
+                }
             } catch (ClosedChannelException e) {
                 callback.callback(channel, buffer, 0, e);
             }
         } else executor.execute(() -> doWrite(channel, buffer, callback));
     }
 
-    private void doRead(ReadableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
+    private static void doRead(ReadableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
         int size = 0;
         Exception exception = null;
-        try {
-            size = channel.read(buffer);
-        } catch (IOException e) {
-            exception = e;
-        } finally {
-            callback.callback(channel, buffer, size, exception);
+        Logger.getInstance().info("do read");
+        synchronized (buffer) {
+            try {
+                size = channel.read(buffer);
+            } catch (IOException e) {
+                exception = e;
+            } finally {
+                callback.callback(channel, buffer, size, exception);
+            }
         }
     }
 
-    private void doWrite(WritableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
+    private static void doWrite(WritableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
         int size = 0;
         Exception exception = null;
-        try {
-            size = channel.write(buffer);
-        } catch (IOException e) {
-            exception = e;
-        } finally {
-            callback.callback(channel, buffer, size, exception);
+        synchronized (buffer) {
+            try {
+                size = channel.write(buffer);
+            } catch (IOException e) {
+                exception = e;
+            } finally {
+                callback.callback(channel, buffer, size, exception);
+            }
         }
     }
 }
