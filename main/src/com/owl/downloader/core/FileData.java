@@ -2,6 +2,7 @@ package com.owl.downloader.core;
 
 import java.io.File;
 import java.io.Serializable;
+import java.net.URI;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
@@ -19,12 +20,14 @@ public class FileData implements Serializable {
 
     public FileData(String path, int blockSize) {
         Objects.requireNonNull(path, "the path of file cannot be null");
+        if (blockSize<=0) throw new IllegalArgumentException("the block size of file should be positive integer");
         this.file = new File(path);
         split(blockSize);
     }
 
     public FileData(File file, int blockSize) {
         Objects.requireNonNull(file, "the file cannot be null");
+        if (blockSize<=0) throw new IllegalArgumentException("the block size of file should be positive integer");
         this.file = file;
         split(blockSize);
     }
@@ -52,7 +55,7 @@ public class FileData implements Serializable {
      * @return the blocks of the file
      */
     public List<Block> getBlocks() {
-        return List.copyOf(blocks);
+        return new LinkedList<>(blocks);
     }
 
     /**
@@ -74,7 +77,7 @@ public class FileData implements Serializable {
         /**
          * Whether this block is available
          */
-        public boolean available;
+        public boolean available = true;
 
         public Block(long offset, long length) {
             this.offset = offset;
@@ -101,13 +104,15 @@ public class FileData implements Serializable {
     @FunctionalInterface
     public interface BlockSelector {
         /**
-         * The default block selector
+         * The default block selector, which randomly select one of the available blocks
          *
          * @return the default block selector
          */
         static BlockSelector getDefault() {
-            // TODO: Implement a default selector
-            return null;
+            BlockSelector blockSelector = (List<Block> blocks1) -> {
+                return blocks1.stream().filter(block -> block.available).findAny().get();
+            };
+            return blockSelector;
         }
 
         /**
@@ -118,4 +123,5 @@ public class FileData implements Serializable {
          */
         Block select(List<Block> availableBlocks);
     }
+
 }

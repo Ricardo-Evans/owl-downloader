@@ -1,5 +1,7 @@
 package com.owl.downloader.io;
 
+import javax.net.ssl.SSLException;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.WritableByteChannel;
@@ -12,19 +14,30 @@ import java.nio.channels.WritableByteChannel;
  * @version 1.0
  */
 public interface IOScheduler {
+
     /**
      * Get the unique IOScheduler
      *
      * @return the unique IOScheduler
      */
     static IOScheduler getInstance() {
-        // TODO: implement it
-        return null;
+        return DefaultIOScheduler.getInstance();
     }
+
+    /**
+     * Start the IO scheduler so that it can accept io tasks
+     */
+    void start() throws IOException;
+
+    /**
+     * Stop the IO scheduler, release all related resources
+     */
+    void stop() throws IOException;
 
     /**
      * Read data from the given channel and put to the given buffer, call the callback once io finish (at least one byte read or io fail)
      * <p>Especially, if the given channel is a selectable channel, a selector is used to wait until the channel is ready</p>
+     * If the given channel is a selectable channel, it should be previously configured to non-blocking by the specific Task.
      *
      * @param channel  the source channel
      * @param buffer   the destination data buffer
@@ -35,6 +48,7 @@ public interface IOScheduler {
     /**
      * Write data from the given buffer to the given channel, call the callback once io finish (at least one byte write or io fail)
      * <p>Especially, if the given channel is a selectable channel, a selector is used to wait until the channel is ready</p>
+     * If the given channel is a selectable channel, it should be previously configured to non-blocking by the specific Task.
      *
      * @param channel  the destination channel
      * @param buffer   the source data buffer
@@ -42,3 +56,7 @@ public interface IOScheduler {
      */
     void write(WritableByteChannel channel, ByteBuffer buffer, IOCallback callback);
 }
+
+
+
+

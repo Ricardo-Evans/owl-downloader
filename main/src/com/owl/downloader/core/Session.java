@@ -2,18 +2,19 @@ package com.owl.downloader.core;
 
 import com.owl.downloader.event.Dispatcher;
 import com.owl.downloader.event.Event;
-
+import com.owl.downloader.exception.UnsupportedProtocolException;
+import com.owl.downloader.io.IOScheduler;
+import java.io.File;
+import java.io.IOException;
 import java.io.Serializable;
 import java.net.ProxySelector;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Objects;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.net.URI;
+import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Function;
 
 /**
  * Session is a singleton class used to manage all the tasks, session also holds some global configurations.
@@ -27,21 +28,24 @@ public final class Session implements Serializable {
     private static Session instance = null;
     private final List<Task> tasks = new LinkedList<>();
     private final ReadWriteLock tasksLock = new ReentrantReadWriteLock();
-    private ThreadPoolExecutor executor;
+    private ExecutorService executor;
     private int maxTasks = 5;
     private int keepaliveTime = 60;
     private ProxySelector proxySelector = ProxySelector.getDefault();
     private String directory = System.getProperty("user.dir");
+    private int maximumConnections = 5;
+    private int blockSize = 1 << 14; // 16KB
 
     private Session() {
-        Dispatcher.getInstance().register(this::onTaskStatusChange);
+        Dispatcher.getInstance().attach(this::onTaskStatusChange);
     }
 
     /**
      * Start the session, some initializations done here, all the tasks cannot be executed until the session is started
      */
-    public void start() {
-        executor = new ThreadPoolExecutor(0, maxTasks, keepaliveTime, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
+    public void start() throws IOException {
+        IOScheduler.getInstance().start();
+        executor = Executors.newWorkStealingPool(maxTasks);
         tasks.stream().filter(task -> task.status() == Task.Status.ACTIVE).forEach(executor::execute);
         adjustActiveTaskCount();
     }
@@ -49,25 +53,28 @@ public final class Session implements Serializable {
     /**
      * Stop the session, release the resources
      */
-    public void stop() {
+    public void stop() throws IOException {
+        IOScheduler.getInstance().stop();
         if (executor != null) executor.shutdownNow();
         executor = null;
     }
 
     // Execute waiting tasks if active tasks count does not reach max tasks
-    private void adjustActiveTaskCount() {
+    private synchronized void adjustActiveTaskCount() {
         tasksLock.readLock().lock();
         try {
-            Iterator<Task> iterator = tasks.stream().filter(task -> task.status() == Task.Status.WAITING).iterator();
-            while (executor.getActiveCount() < executor.getMaximumPoolSize() && iterator.hasNext())
-                executor.execute(iterator.next());
+            long activeCount = tasks.stream().filter(task -> task.status() == Task.Status.ACTIVE).count();
+            tasks.stream().filter(task -> task.status() == Task.Status.WAITING).limit(maxTasks - activeCount).forEach(task -> {
+                task.prepare();
+                executor.execute(task);
+            });
         } finally {
             tasksLock.readLock().unlock();
         }
     }
 
     private boolean onTaskStatusChange(Event event, Task task, Exception exception) {
-        adjustActiveTaskCount();
+        if (event != Event.START) adjustActiveTaskCount();
         return false;
     }
 
@@ -92,7 +99,7 @@ public final class Session implements Serializable {
     public List<Task> getTasks() {
         tasksLock.readLock().lock();
         try {
-            return List.copyOf(tasks);
+            return new LinkedList<>(tasks);
         } finally {
             tasksLock.readLock().unlock();
         }
@@ -103,11 +110,11 @@ public final class Session implements Serializable {
      *
      * @param task the task to be added
      */
-    public void addTask(Task task) {
+    public void insertTask(Task task) {
         tasksLock.writeLock().lock();
         try {
             tasks.add(task);
-            adjustActiveTaskCount();
+            Dispatcher.getInstance().dispatch(Event.INSERT, task, null);
         } finally {
             tasksLock.writeLock().unlock();
         }
@@ -125,6 +132,7 @@ public final class Session implements Serializable {
         tasksLock.writeLock().lock();
         try {
             tasks.remove(task);
+            Dispatcher.getInstance().dispatch(Event.REMOVE, task, null);
         } finally {
             tasksLock.writeLock().unlock();
         }
@@ -212,6 +220,63 @@ public final class Session implements Serializable {
         this.proxySelector = proxySelector;
     }
 
+    /**
+     * Get the default working directory
+     *
+     * @return the default working directory
+     */
+    public String getDirectory() {
+        return directory;
+    }
+
+    /**
+     * Set the default working directory
+     *
+     * @param directory the default working directory
+     */
+    public void setDirectory(String directory) {
+        Objects.requireNonNull(directory);
+        this.directory = directory;
+    }
+
+    /**
+     * Get the default count of maximum connections per task
+     *
+     * @return the default count of maximum connections per task
+     */
+    public int getMaximumConnections() {
+        return maximumConnections;
+    }
+
+    /**
+     * Set the default count of maximum connections per task
+     *
+     * @param maximumConnections the default count of maximum connections per task
+     */
+    public void setMaximumConnections(int maximumConnections) {
+        if (maximumConnections <= 0) throw new IllegalArgumentException();
+        this.maximumConnections = maximumConnections;
+    }
+
+    /**
+     * Get the default block size, in bytes
+     *
+     * @return the default block size, in bytes
+     */
+    public int getBlockSize() {
+        return blockSize;
+    }
+
+    /**
+     * Set the default block size, in bytes
+     *
+     * @param blockSize the default block size, in bytes
+     */
+    public void setBlockSize(int blockSize) {
+        if (blockSize <= 0) throw new IllegalArgumentException();
+        this.blockSize = blockSize;
+    }
+
     private Object readResolve() {
         if (instance == null)
             synchronized (Session.class) {
@@ -221,22 +286,50 @@ public final class Session implements Serializable {
     }
 
     /**
-     * Get the default directory where to store data
-     *
-     * @return the default directory where to store data
+     * Factories to construct tasks from uri, all uri task implementations should register here
      */
-    public String getDirectory() {
-        return directory;
+    private static final Map<String, Function<URI, Task>> uriTaskFactories = new HashMap<>();
+    /**
+     * Factories to construct tasks from file, all file task implementations should register here
+     */
+    private static final Map<String, Function<File, Task>> fileTaskFactories = new HashMap<>();
+
+    /**
+     * Construct a task from the given uri
+     *
+     * @param uri the uri used to construct task
+     * @return the constructed task
+     * @throws UnsupportedProtocolException if the given protocol is not supported
+     * @throws NullPointerException         if the given uri is null
+     */
+    public static Task fromUri(URI uri) {
+        Objects.requireNonNull(uri);
+        if (!uriTaskFactories.containsKey(uri.getScheme()))
+            throw new UnsupportedProtocolException("protocol " + uri.getScheme() + " is not supported");
+        return uriTaskFactories.get(uri.getScheme()).apply(uri);
     }
 
     /**
-     * Set the default directory where to store data
+     * Construct a task from the given file
      *
-     * @param directory the default directory where to store data
-     * @throws NullPointerException if directory is null
+     * @param file the file used to construct task
+     * @return the constructed task
+     * @throws UnsupportedProtocolException if the protocol is not supported
+     * @throws NullPointerException         if the given file is null
+     * @throws IllegalArgumentException     if the given is not a file, such as a directory
      */
-    public void setDirectory(String directory) {
-        Objects.requireNonNull(directory, "the directory cannot be null");
-        this.directory = directory;
+    public static Task fromFile(File file) {
+        Objects.requireNonNull(file);
+        if (!file.isFile()) throw new IllegalArgumentException("the file used to construct task cannot be directories");
+        String name = file.getName();
+        String suffix = name.substring(name.lastIndexOf('.'));
+        if (!fileTaskFactories.containsKey(suffix))
+            throw new UnsupportedProtocolException("protocol " + suffix + " is not supported");
+        return fileTaskFactories.get(suffix).apply(file);
+    }
+
+    static {
+        uriTaskFactories.put("http", HttpTask::new);
+        uriTaskFactories.put("https", HttpTask::new);
     }
 }
