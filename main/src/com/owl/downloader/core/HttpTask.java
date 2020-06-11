@@ -2,8 +2,11 @@ package com.owl.downloader.core;
 
 import com.owl.downloader.io.IOCallback;
 import com.owl.downloader.io.IOScheduler;
+import com.owl.downloader.log.Level;
+import com.owl.downloader.log.Logger;
 import com.owl.downloader.util.MyX509TrustManager;
 import com.owl.downloader.util.SSLEngineUtil;
+import com.owl.downloader.util.Util;
 
 import javax.net.ssl.*;
 import java.io.File;
@@ -36,10 +39,12 @@ public class HttpTask extends BaseTask implements Task {
     private final String protocol;
     private final IOScheduler ioScheduler = IOScheduler.getInstance();
     public AtomicInteger currentConnections;
-    private long downloadSpeed = 0;
+    private double downloadSpeed = 0;
+    private long lastDownloadedLength = 0;
     private long downloadedLength = 0;
     private long totalLength = 0;
-    private long currentTime;
+    private long currentTime = 0;
+    private final Logger logger = Logger.getInstance();
     private final List<FileData> files = new LinkedList<>();
 
     public HttpTask(URI uri) {
@@ -59,7 +64,15 @@ public class HttpTask extends BaseTask implements Task {
 
     @Override
     public long downloadSpeed() {
-        return downloadSpeed;
+        synchronized (this) {
+            long lastTime = currentTime;
+            currentTime = System.currentTimeMillis();
+            System.out.println(downloadedLength - lastDownloadedLength);
+            System.out.println(currentTime - lastTime);
+            downloadSpeed = Util.calculateSpeed(downloadedLength - lastDownloadedLength, currentTime - lastTime, downloadSpeed);
+            lastDownloadedLength = downloadedLength;
+        }
+        return (long) downloadSpeed;
     }
 
     @Override
@@ -96,6 +109,7 @@ public class HttpTask extends BaseTask implements Task {
             try {
                 setHttpFileAttributes();
             } catch (IOException e) {
+                logger.log(Level.ERROR, "Failed to connect to get meta data");
                 changeStatus(Status.ERROR, e);
                 return;
             }
@@ -103,6 +117,7 @@ public class HttpTask extends BaseTask implements Task {
             try {
                 setHttpsFileAttributes();
             } catch (Exception e) {
+                logger.log(Level.ERROR, "Failed to connect to get meta data");
                 changeStatus(Status.ERROR, e);
                 return;
             }
@@ -112,28 +127,49 @@ public class HttpTask extends BaseTask implements Task {
         List<FileData.Block> availableBlocks = files.get(0).getBlocks();  //need to change.
         FileData.Block block;
         currentTime = System.currentTimeMillis();
-        while (true) {
-            try {
-                block = Objects.requireNonNull(blockSelector).select(availableBlocks);
-            } catch (NoSuchElementException e) {
-                changeStatus(Status.COMPLETED);
-                break;
-            }
-            if (currentConnections.get() < getMaximumConnections() && status() == Status.ACTIVE) {
-                currentConnections.incrementAndGet();
-                synchronized (this) {
-                    block.available = false;
-                }
-                if (protocol.equals("http")) {
-                    createHttpConnection(block);
+        while (status() == Status.ACTIVE) {
+            logger.log(Level.DEBUG, String.valueOf(currentConnections.get()));
+            block = Objects.requireNonNull(blockSelector).select(availableBlocks);
+            if (block == null) {
+                if (currentConnections.get() == 0) {
+                    logger.log(Level.INFO, "Task complete");
+                    changeStatus(Status.COMPLETED);
+                    break;
                 } else {
-                    createHttpsConnection(block);
+                    try {
+                        synchronized (this) {
+                            wait();
+                        }
+                    } catch (InterruptedException e) {
+                        logger.log(Level.ERROR, "", e);
+                        changeStatus(Status.ERROR, e);
+                    }
+                    continue;
                 }
+            }
+
+            if (currentConnections.get() >= getMaximumConnections()) {
+                try {
+                    synchronized (this) {
+                        this.wait();
+                    }
+                } catch (InterruptedException e) {
+                    logger.log(Level.ERROR, "", e);
+                    changeStatus(Status.ERROR, e);
+                }
+            }
+            currentConnections.incrementAndGet();
+            synchronized (this) {
+                block.available = false;
+            }
+            if (protocol.equals("http")) {
+                createHttpConnection(block);
+            } else {
+                createHttpsConnection(block);
             }
         }
-
-
     }
+
 
     /**
      * Set Http source file's length and type.
@@ -156,6 +192,7 @@ public class HttpTask extends BaseTask implements Task {
         try {
             httpsConnection = (HttpsURLConnection) this.uri.toURL().openConnection(proxy);
         } catch (IOException e) {
+            logger.log(Level.ERROR, "Failed to connect to get meta data");
             changeStatus(Status.ERROR, e);
             return;
         }
@@ -210,7 +247,7 @@ public class HttpTask extends BaseTask implements Task {
     }
 
     private void createHttpsConnection(FileData.Block block) {
-        System.out.println("OffSet:" + block.offset);
+//        System.out.println("OffSet:" + block.offset);
         try {
             String host = uri.getHost();
             String path = uri.getPath();
@@ -235,6 +272,7 @@ public class HttpTask extends BaseTask implements Task {
             RandomAccessFile randomAccessFile = new RandomAccessFile(files.get(0).getFile(), "rw");
             FileChannel fileChannel = randomAccessFile.getChannel();
             fileChannel.position(block.offset);
+
             httpsRead(socketChannel, fileChannel, peerNetBuffer, peerAppBuffer, sslEngine);
         } catch (Exception e) {
             block.available = true;
@@ -271,10 +309,15 @@ public class HttpTask extends BaseTask implements Task {
                 try {
                     readChannel.close();
                     writeChannel.close();
+
                 } catch (IOException e) {
+                    logger.log(Level.ERROR, "fail to close channel", e);
                     changeStatus(Status.ERROR, e);
                 }
                 currentConnections.decrementAndGet();
+                synchronized (this) {
+                    notify();
+                }
             }
         };
         Objects.requireNonNull(ioScheduler).read(readChannel, netBuffer, httpsReadCallback);
@@ -283,9 +326,6 @@ public class HttpTask extends BaseTask implements Task {
 
     private void httpsWrite(ReadableByteChannel readChannel, WritableByteChannel writeChannel, ByteBuffer netBuffer, ByteBuffer appBuffer, SSLEngine sslEngine) {
         IOCallback httpsWriteCallback = (Channel fileChannel, ByteBuffer responseBuffer, int size, Exception exception) -> {
-            long lastTime = currentTime;
-            currentTime = System.currentTimeMillis();
-            downloadSpeed = size / (currentTime - lastTime + 1) * 1000;//B/s
             synchronized (this) {
                 adjustDownloadedLength(size);
             }
@@ -303,15 +343,12 @@ public class HttpTask extends BaseTask implements Task {
     private void httpRead(ReadableByteChannel readChannel, WritableByteChannel writeChannel, ByteBuffer buffer) {
         IOCallback httpReadCallback = (Channel channel, ByteBuffer responseBuffer, int size, Exception exception) -> {
             if (exception != null) {
-                exception.printStackTrace();
+                logger.log(Level.ERROR, "fail to read from socket", exception);
+                changeStatus(Status.ERROR, exception);
                 return;
             }
             if (size != -1) {
-                long lastTime = currentTime;
-                currentTime = System.currentTimeMillis();
 
-//                System.out.println(size);
-                downloadSpeed = size * 1000 / (currentTime - lastTime + 1);
                 buffer.flip();
                 httpWrite(readChannel, writeChannel, buffer);
 
@@ -321,11 +358,14 @@ public class HttpTask extends BaseTask implements Task {
             } else {
 //                System.out.println("block complete");
                 try {
-                    currentConnections.decrementAndGet();
                     readChannel.close();
                     writeChannel.close();
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    logger.log(Level.ERROR, "fail to close channel", e);
+                }
+                currentConnections.decrementAndGet();
+                synchronized (this) {
+                    this.notify();
                 }
             }
         };
@@ -397,6 +437,7 @@ public class HttpTask extends BaseTask implements Task {
             }
         }
         this.files.add(new FileData(file, getBlockSize()));
+        logger.log(Level.INFO, "Create file successfully");
     }
 
 
