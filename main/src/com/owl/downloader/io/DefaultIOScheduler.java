@@ -1,5 +1,7 @@
 package com.owl.downloader.io;
 
+import com.owl.downloader.log.Logger;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
@@ -20,8 +22,8 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
         while (!Thread.currentThread().isInterrupted()) {
             try {
                 int count = selector.select();
-                if (count > 0) {
-                    synchronized (this) {
+                synchronized (this) {
+                    if (count > 0) {
                         Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
                         while (iterator.hasNext()) {
                             SelectionKey key = iterator.next();
@@ -88,8 +90,8 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
         if (channel instanceof SelectableChannel) {
             try {
                 synchronized (this) {
-                    ((SelectableChannel) channel).register(selector, SelectionKey.OP_READ, new Attachment(buffer, callback));
                     selector.wakeup();
+                    ((SelectableChannel) channel).register(selector, SelectionKey.OP_READ, new Attachment(buffer, callback));
                 }
             } catch (ClosedChannelException e) {
                 callback.callback(channel, buffer, 0, e);
@@ -103,8 +105,8 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
         if (channel instanceof SelectableChannel) {
             try {
                 synchronized (this) {
-                    ((SelectableChannel) channel).register(selector, SelectionKey.OP_WRITE, new Attachment(buffer, callback));
                     selector.wakeup();
+                    ((SelectableChannel) channel).register(selector, SelectionKey.OP_WRITE, new Attachment(buffer, callback));
                 }
             } catch (ClosedChannelException e) {
                 callback.callback(channel, buffer, 0, e);
@@ -115,6 +117,7 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
     private static void doRead(ReadableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
         int size = 0;
         Exception exception = null;
+        Logger.getInstance().info("do read");
         synchronized (buffer) {
             try {
                 size = channel.read(buffer);

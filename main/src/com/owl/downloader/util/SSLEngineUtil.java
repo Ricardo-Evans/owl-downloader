@@ -7,7 +7,6 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLEngineResult;
 import java.io.FileInputStream;
-import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
@@ -24,7 +23,7 @@ public class SSLEngineUtil {
             algorithm = "SunX509";
         }
         KeyManagerFactory kmf = KeyManagerFactory.getInstance(algorithm);
-        KeyStore ks = ks = KeyStore.getInstance("JKS");
+        KeyStore ks = KeyStore.getInstance("JKS");
 
         String JAVA_HOME = System.getenv("JAVA_HOME");
         ks.load(new FileInputStream(JAVA_HOME + "/lib/security/cacerts"), passphrase);

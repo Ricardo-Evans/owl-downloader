@@ -113,7 +113,6 @@ public class HttpTask extends BaseTask implements Task {
         FileData.Block block;
         currentTime = System.currentTimeMillis();
         while (true) {
-//            System.out.println(currentConnections.get());
             try {
                 block = Objects.requireNonNull(blockSelector).select(availableBlocks);
             } catch (NoSuchElementException e) {
@@ -236,7 +235,6 @@ public class HttpTask extends BaseTask implements Task {
             RandomAccessFile randomAccessFile = new RandomAccessFile(files.get(0).getFile(), "rw");
             FileChannel fileChannel = randomAccessFile.getChannel();
             fileChannel.position(block.offset);
-
             httpsRead(socketChannel, fileChannel, peerNetBuffer, peerAppBuffer, sslEngine);
         } catch (Exception e) {
             block.available = true;

@@ -35,7 +35,7 @@ public final class Session implements Serializable {
     private ProxySelector proxySelector = ProxySelector.getDefault();
     private String directory = System.getProperty("user.dir");
     private int maximumConnections = 5;
-    private int blockSize = 1 << 14; // 16KB
+    private int blockSize = 1 << 22; // 4MB
 
     private Session() {
         Dispatcher.getInstance().attach(this::onTaskStatusChange);
