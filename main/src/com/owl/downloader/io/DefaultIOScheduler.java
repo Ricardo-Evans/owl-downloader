@@ -95,68 +95,64 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
     @Override
     public void read(ReadableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
         if (!running) throw new IllegalStateException();
-        if (channel instanceof SelectableChannel) {
-            try {
-                lock.readLock().lock();
+        lock.readLock().lock();
+        try {
+            if (channel instanceof SelectableChannel) {
                 try {
                     selector.wakeup();
                     selector.selectNow();
                     ((SelectableChannel) channel).register(selector, SelectionKey.OP_READ, new Attachment(buffer, callback));
-                } finally {
-                    lock.readLock().unlock();
+                } catch (IOException e) {
+                    callback.callback(channel, buffer, 0, e);
                 }
-            } catch (IOException e) {
-                callback.callback(channel, buffer, 0, e);
-            }
-        } else executor.execute(() -> doRead(channel, buffer, callback));
+            } else executor.execute(() -> doRead(channel, buffer, callback));
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     @Override
     public void write(WritableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
         if (!running) throw new IllegalStateException();
-        if (channel instanceof SelectableChannel) {
-            try {
-                lock.readLock().lock();
+        lock.readLock().lock();
+        try {
+            if (channel instanceof SelectableChannel) {
                 try {
                     selector.wakeup();
                     selector.selectNow();
                     ((SelectableChannel) channel).register(selector, SelectionKey.OP_WRITE, new Attachment(buffer, callback));
-                } finally {
-                    lock.readLock().unlock();
+                } catch (IOException e) {
+                    callback.callback(channel, buffer, 0, e);
                 }
-            } catch (IOException e) {
-                callback.callback(channel, buffer, 0, e);
-            }
-        } else executor.execute(() -> doWrite(channel, buffer, callback));
+            } else executor.execute(() -> doWrite(channel, buffer, callback));
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     private static void doRead(ReadableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
         int size = 0;
         Exception exception = null;
-        synchronized (buffer) {
-            try {
-                size = channel.read(buffer);
-                Logger.getInstance().info("do read " + size);
-            } catch (IOException e) {
-                exception = e;
-            } finally {
-                callback.callback(channel, buffer, size, exception);
-            }
+        try {
+            size = channel.read(buffer);
+            Logger.getInstance().debug("do read " + size + " bytes");
+        } catch (IOException e) {
+            exception = e;
+        } finally {
+            callback.callback(channel, buffer, size, exception);
         }
     }
 
     private static void doWrite(WritableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
         int size = 0;
         Exception exception = null;
-        synchronized (buffer) {
-            try {
-                size = channel.write(buffer);
-                Logger.getInstance().info("do write " + size);
-            } catch (IOException e) {
-                exception = e;
-            } finally {
-                callback.callback(channel, buffer, size, exception);
-            }
+        try {
+            size = channel.write(buffer);
+            Logger.getInstance().debug("do write " + size + " bytes");
+        } catch (IOException e) {
+            exception = e;
+        } finally {
+            callback.callback(channel, buffer, size, exception);
         }
     }
 }
