@@ -17,11 +17,11 @@ public abstract class BaseTask implements Task {
     private static final long serialVersionUID = -1021838795789258648L;
     private volatile Status status = Status.WAITING;
     private static final Map<Status, Event> EVENT_MAP = new HashMap<>();
-    private FileData.BlockSelector blockSelector;
+    private FileData.BlockSelector blockSelector = FileData.BlockSelector.getDefault();
     private final String name;
     private int maximumConnections = Session.getInstance().getMaximumConnections();
     private String directory = Session.getInstance().getDirectory();
-    private int blockSize;
+    private int blockSize = Session.getInstance().getBlockSize();
     private ProxySelector proxySelector = Session.getInstance().getProxySelector();
 
     static {
@@ -48,15 +48,15 @@ public abstract class BaseTask implements Task {
 
     @Override
     public void start() {
-        if (status != Status.PAUSED || status != Status.ERROR)
-            throw new IllegalStateException("only paused or error task can be started");
+        if (status != Status.PAUSED && status != Status.ERROR)
+            throw new IllegalStateException("only paused or error task can be started, status is " + status);
         changeStatus(Status.WAITING);
     }
 
     @Override
     public void pause() {
-        if (status != Status.ACTIVE || status != Status.WAITING)
-            throw new IllegalStateException("only active|waiting tasks can be paused");
+        if (status != Status.ACTIVE && status != Status.WAITING)
+            throw new IllegalStateException("only active|waiting tasks can be paused, status is " + status);
         changeStatus(Status.PAUSED);
     }
 
@@ -81,7 +81,7 @@ public abstract class BaseTask implements Task {
      * @param status    the target status
      * @param exception why status change
      */
-    protected final void changeStatus(Status status, Exception exception) {
+    protected synchronized final void changeStatus(Status status, Exception exception) {
         this.status = status;
         Dispatcher.getInstance().dispatch(EVENT_MAP.get(status), this, exception);
     }
