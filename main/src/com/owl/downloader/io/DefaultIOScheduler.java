@@ -33,9 +33,10 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
                             SelectionKey key = iterator.next();
                             if (!key.isValid()) continue;
                             Attachment attachment = (Attachment) key.attachment();
-                            if (key.isReadable())
+                            int operation = key.readyOps();
+                            if ((operation & SelectionKey.OP_READ) != 0)
                                 executor.execute(() -> doRead((ReadableByteChannel) key.channel(), attachment.buffer, attachment.callback));
-                            if (key.isWritable())
+                            if ((operation & SelectionKey.OP_WRITE) != 0)
                                 executor.execute(() -> doWrite((WritableByteChannel) key.channel(), attachment.buffer, attachment.callback));
                             iterator.remove();
                             key.cancel();
