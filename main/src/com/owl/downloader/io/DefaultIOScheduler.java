@@ -8,12 +8,15 @@ import java.nio.channels.*;
 import java.util.Iterator;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class DefaultIOScheduler implements IOScheduler, Runnable {
     private static DefaultIOScheduler scheduler = null;
     private Selector selector = null;
     private Thread daemon = null;
     private ExecutorService executor = null;
+    private final ReadWriteLock lock = new ReentrantReadWriteLock();
     private volatile boolean running = false;
 
     @Override
@@ -22,7 +25,8 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
         while (!Thread.currentThread().isInterrupted()) {
             try {
                 int count = selector.select();
-                synchronized (this) {
+                lock.writeLock().lock();
+                try {
                     if (count > 0) {
                         Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
                         while (iterator.hasNext()) {
@@ -36,13 +40,15 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
                             iterator.remove();
                             key.cancel();
                         }
-                        selector.selectNow();
                     }
+                } finally {
+                    lock.writeLock().unlock();
                 }
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }
+
         running = false;
     }
 
@@ -90,11 +96,15 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
         if (!running) throw new IllegalStateException();
         if (channel instanceof SelectableChannel) {
             try {
-                synchronized (this) {
+                lock.readLock().lock();
+                try {
                     selector.wakeup();
+                    selector.selectNow();
                     ((SelectableChannel) channel).register(selector, SelectionKey.OP_READ, new Attachment(buffer, callback));
+                } finally {
+                    lock.readLock().unlock();
                 }
-            } catch (ClosedChannelException e) {
+            } catch (IOException e) {
                 callback.callback(channel, buffer, 0, e);
             }
         } else executor.execute(() -> doRead(channel, buffer, callback));
@@ -105,11 +115,15 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
         if (!running) throw new IllegalStateException();
         if (channel instanceof SelectableChannel) {
             try {
-                synchronized (this) {
+                lock.readLock().lock();
+                try {
                     selector.wakeup();
+                    selector.selectNow();
                     ((SelectableChannel) channel).register(selector, SelectionKey.OP_WRITE, new Attachment(buffer, callback));
+                } finally {
+                    lock.readLock().unlock();
                 }
-            } catch (ClosedChannelException e) {
+            } catch (IOException e) {
                 callback.callback(channel, buffer, 0, e);
             }
         } else executor.execute(() -> doWrite(channel, buffer, callback));
@@ -118,10 +132,10 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
     private static void doRead(ReadableByteChannel channel, ByteBuffer buffer, IOCallback callback) {
         int size = 0;
         Exception exception = null;
-        Logger.getInstance().info("do read");
         synchronized (buffer) {
             try {
                 size = channel.read(buffer);
+                Logger.getInstance().info("do read " + size);
             } catch (IOException e) {
                 exception = e;
             } finally {
@@ -136,6 +150,7 @@ public class DefaultIOScheduler implements IOScheduler, Runnable {
         synchronized (buffer) {
             try {
                 size = channel.write(buffer);
+                Logger.getInstance().info("do write " + size);
             } catch (IOException e) {
                 exception = e;
             } finally {

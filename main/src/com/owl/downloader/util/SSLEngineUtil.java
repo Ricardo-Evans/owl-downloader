@@ -2,17 +2,30 @@ package com.owl.downloader.util;
 
 import com.owl.downloader.core.FileData;
 
+import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLEngineResult;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
+import java.security.KeyStore;
 
 
 public class SSLEngineUtil {
     public static SSLEngine prepareEngine(String host, int port) throws Exception {
-        SSLEngine sslEngine = SSLContext.getDefault().createSSLEngine(host, port);
+        char[] passphrase = "changeit".toCharArray();
+
+        SSLContext ctx = SSLContext.getInstance("TLSv1.2");
+
+        KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+        KeyStore ks = KeyStore.getInstance(KeyStore.getDefaultType());
+
+        ks.load(null);
+
+        kmf.init(ks, passphrase);
+        ctx.init(kmf.getKeyManagers(), null, null);
+        SSLEngine sslEngine = ctx.createSSLEngine(host, port);
         sslEngine.setUseClientMode(true);
 
         return sslEngine;
@@ -98,7 +111,8 @@ public class SSLEngineUtil {
 //        System.out.println("after handshaking");
     }
 
-    private static void runDelegatedTasks(SSLEngineResult result, SSLEngine engine) {
+    private static void runDelegatedTasks(SSLEngineResult result,
+                                          SSLEngine engine) throws Exception {
 
         if (result.getHandshakeStatus() == SSLEngineResult.HandshakeStatus.NEED_TASK) {
             Runnable runnable;

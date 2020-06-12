@@ -115,47 +115,33 @@ public class HttpTask extends BaseTask implements Task {
             }
         }
         createFile();
-        FileData.BlockSelector blockSelector = FileData.BlockSelector.getDefault();
+        FileData.BlockSelector blockSelector = getBlockSelector();
         List<FileData.Block> availableBlocks = files.get(0).getBlocks();  //need to change.
         FileData.Block block;
-        currentTime = System.currentTimeMillis();
-        while (status() == Status.ACTIVE) {
-            logger.log(Level.DEBUG, String.valueOf(currentConnections.get()));
-            block = Objects.requireNonNull(blockSelector).select(availableBlocks);
-            if (block == null) {
-                if (currentConnections.get() == 0) {
-                    logger.log(Level.INFO, "Task complete");
-                    changeStatus(Status.COMPLETED);
-                    break;
+        while (status() == Status.ACTIVE && !Thread.currentThread().isInterrupted()) {
+            while (currentConnections.get() < getMaximumConnections()) {
+                logger.debug("create connection, current: " + currentConnections.get());
+                block = Objects.requireNonNull(blockSelector).select(availableBlocks);
+                if (block == null) {
+                    if (currentConnections.get() <= 0) {
+                        changeStatus(Status.COMPLETED);
+                        return;
+                    } else break;
+                }
+                block.available = false;
+                if (protocol.equals("http")) {
+                    createHttpConnection(block);
                 } else {
-                    try {
-                        synchronized (this) {
-                            wait();
-                        }
-                    } catch (InterruptedException e) {
-                        logger.log(Level.ERROR, "", e);
-                        changeStatus(Status.ERROR, e);
-                    }
-                    continue;
+                    createHttpsConnection(block);
                 }
+                currentConnections.incrementAndGet();
             }
-
-            if (currentConnections.get() >= getMaximumConnections()) {
+            synchronized (this) {
                 try {
-                    synchronized (this) {
-                        this.wait();
-                    }
+                    wait();
                 } catch (InterruptedException e) {
-                    logger.log(Level.ERROR, "", e);
-                    changeStatus(Status.ERROR, e);
+                    e.printStackTrace();
                 }
-            }
-            currentConnections.incrementAndGet();
-            block.available = false;
-            if (protocol.equals("http")) {
-                createHttpConnection(block);
-            } else {
-                createHttpsConnection(block);
             }
         }
     }
@@ -232,6 +218,7 @@ public class HttpTask extends BaseTask implements Task {
 
         } catch (IOException e) {
             block.available = true;
+            logger.error("exception during create http connection", e);
         }
     }
 
@@ -266,6 +253,7 @@ public class HttpTask extends BaseTask implements Task {
             httpsRead(socketChannel, fileChannel, peerNetBuffer, peerAppBuffer, sslEngine);
         } catch (Exception e) {
             block.available = true;
+            logger.error("exception during create https connection", e);
         }
     }
 
@@ -408,7 +396,6 @@ public class HttpTask extends BaseTask implements Task {
      */
     private void createFile() {
         File file = new File(getDirectory(), name());  //type
-        System.out.println(getDirectory() + "/" + name());
         if (!file.exists()) {
             try {
                 file.createNewFile();

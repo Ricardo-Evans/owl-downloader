@@ -17,7 +17,7 @@ public abstract class BaseTask implements Task {
     private static final long serialVersionUID = -1021838795789258648L;
     private volatile Status status = Status.WAITING;
     private static final Map<Status, Event> EVENT_MAP = new HashMap<>();
-    private FileData.BlockSelector blockSelector;
+    private FileData.BlockSelector blockSelector = FileData.BlockSelector.getDefault();
     private final String name;
     private int maximumConnections = Session.getInstance().getMaximumConnections();
     private String directory = Session.getInstance().getDirectory();
