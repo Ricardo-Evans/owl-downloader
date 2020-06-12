@@ -60,8 +60,6 @@ public class HttpTask extends BaseTask implements Task {
     public long downloadSpeed() {
         long lastTime = currentTime;
         currentTime = System.currentTimeMillis();
-        System.out.println(downloadedLength - lastDownloadedLength);
-        System.out.println(currentTime - lastTime);
         downloadSpeed = Util.calculateSpeed(downloadedLength() - lastDownloadedLength, currentTime - lastTime, downloadSpeed);
         lastDownloadedLength = downloadedLength;
         return downloadSpeed;
@@ -114,13 +112,15 @@ public class HttpTask extends BaseTask implements Task {
                 return;
             }
         }
+
         createFile();
         FileData.BlockSelector blockSelector = FileData.BlockSelector.getDefault();
         List<FileData.Block> availableBlocks = files.get(0).getBlocks();  //need to change.
         FileData.Block block;
         currentTime = System.currentTimeMillis();
+
         while (status() == Status.ACTIVE) {
-            logger.log(Level.DEBUG, String.valueOf(currentConnections.get()));
+            logger.log(Level.DEBUG, "current connections:" + currentConnections.get());
             block = Objects.requireNonNull(blockSelector).select(availableBlocks);
             if (block == null) {
                 if (currentConnections.get() == 0) {
@@ -189,6 +189,7 @@ public class HttpTask extends BaseTask implements Task {
         httpsConnection.connect();
         totalLength = httpsConnection.getContentLength();
         type = httpsConnection.getContentType();
+        logger.log(Level.INFO, "length:" + totalLength + " type:" + type);
     }
 
     /**
@@ -246,14 +247,19 @@ public class HttpTask extends BaseTask implements Task {
             SSLEngine sslEngine = SSLEngineUtil.prepareEngine(host, port);
             SocketChannel socketChannel = SSLEngineUtil.prepareChannel(host, port);
             boolean connected = socketChannel.finishConnect();
+
             while (!connected) {
                 connected = socketChannel.finishConnect();
             }
+
             SSLSession session = sslEngine.getSession();
             ByteBuffer myAppBuffer = ByteBuffer.allocate(session.getApplicationBufferSize());
             ByteBuffer myNetBuffer = ByteBuffer.allocate(session.getPacketBufferSize());
             ByteBuffer peerAppBuffer = ByteBuffer.allocate(session.getApplicationBufferSize());
             ByteBuffer peerNetBuffer = ByteBuffer.allocate(session.getPacketBufferSize());
+            logger.log(Level.DEBUG,"Size of appBuffer: "+session.getApplicationBufferSize());
+            logger.log(Level.DEBUG,"Size of netBuffer: "+session.getPacketBufferSize());
+
 
             SSLEngineUtil.doHandshake(socketChannel, sslEngine, myNetBuffer, peerNetBuffer);
 
@@ -264,6 +270,7 @@ public class HttpTask extends BaseTask implements Task {
             fileChannel.position(block.offset);
 
             httpsRead(socketChannel, fileChannel, peerNetBuffer, peerAppBuffer, sslEngine);
+
         } catch (Exception e) {
             block.available = true;
         }
@@ -279,6 +286,7 @@ public class HttpTask extends BaseTask implements Task {
                     try {
                         res = sslEngine.unwrap(netBuffer, appBuffer);
                     } catch (SSLException e) {
+                        logger.log(Level.ERROR, "", e);
                         changeStatus(Status.ERROR, e);
                     }
                     if (Objects.requireNonNull(res).getStatus() == SSLEngineResult.Status.BUFFER_UNDERFLOW) {
@@ -305,6 +313,7 @@ public class HttpTask extends BaseTask implements Task {
                     changeStatus(Status.ERROR, e);
                 }
                 currentConnections.decrementAndGet();
+                logger.log(Level.DEBUG, "block complete");
                 synchronized (this) {
                     notify();
                 }
@@ -330,7 +339,7 @@ public class HttpTask extends BaseTask implements Task {
     private void httpRead(ReadableByteChannel readChannel, WritableByteChannel writeChannel, ByteBuffer buffer) {
         IOCallback httpReadCallback = (Channel channel, ByteBuffer responseBuffer, int size, Exception exception) -> {
             if (exception != null) {
-                logger.log(Level.ERROR, "fail to read from socket", exception);
+                logger.log(Level.ERROR, "fail to read from socket channel", exception);
                 changeStatus(Status.ERROR, exception);
                 return;
             }
@@ -427,6 +436,3 @@ public class HttpTask extends BaseTask implements Task {
 
 
 }
-
-
-
