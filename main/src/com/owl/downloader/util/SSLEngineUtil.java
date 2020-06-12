@@ -2,17 +2,23 @@ package com.owl.downloader.util;
 
 import com.owl.downloader.core.FileData;
 
+import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLEngineResult;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
+import java.security.KeyStore;
+import java.security.Security;
 
 
 public class SSLEngineUtil {
     public static SSLEngine prepareEngine(String host, int port) throws Exception {
-        SSLEngine sslEngine = SSLContext.getDefault().createSSLEngine(host, port);
+        SSLContext ctx = SSLContext.getDefault();
+        SSLEngine sslEngine = ctx.createSSLEngine(host, port);
         sslEngine.setUseClientMode(true);
 
         return sslEngine;
@@ -60,15 +66,11 @@ public class SSLEngineUtil {
                     break;
 
                 case NEED_WRAP:
-                    // Empty the local network packet buffer.
                     myNetData.clear();
 
-                    // Generate handshaking data
                     res = engine.wrap(myAppData, myNetData);
-//                    MySSlEngine.print(myNetData);
                     hs = res.getHandshakeStatus();
 
-                    // Check status
                     if (res.getStatus() == SSLEngineResult.Status.OK) {
                         myNetData.flip();
 
@@ -77,28 +79,23 @@ public class SSLEngineUtil {
                             socketChannel.write(myNetData);
                         }
 
-                        // Handle other status:  BUFFER_OVERFLOW, BUFFER_UNDERFLOW, CLOSED
                     }
                     break;
 
                 case NEED_TASK:
-                    // Handle blocking tasks
                     Runnable task;
                     while ((task = engine.getDelegatedTask()) != null) {
                         new Thread(task).start();
                     }
                     hs = engine.getHandshakeStatus();
                     break;
-
-                // Handle other status:  // FINISHED or NOT_HANDSHAKING
             }
         }
 
-        // Processes after handshaking
-//        System.out.println("after handshaking");
     }
 
-    private static void runDelegatedTasks(SSLEngineResult result, SSLEngine engine) {
+    private static void runDelegatedTasks(SSLEngineResult result,
+                                          SSLEngine engine) throws Exception {
 
         if (result.getHandshakeStatus() == SSLEngineResult.HandshakeStatus.NEED_TASK) {
             Runnable runnable;
