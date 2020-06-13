@@ -12,10 +12,7 @@ import javax.net.ssl.*;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.net.HttpURLConnection;
-import java.net.InetSocketAddress;
-import java.net.Proxy;
-import java.net.URI;
+import java.net.*;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
 import java.security.KeyManagementException;
@@ -33,7 +30,7 @@ import java.util.concurrent.atomic.LongAdder;
  * @version 1.0
  */
 public class HttpTask extends BaseTask implements Task {
-    private final URI uri;
+    private URI uri;
     private final Proxy proxy;
     private String type;
     private final String protocol;
@@ -60,8 +57,6 @@ public class HttpTask extends BaseTask implements Task {
     public long downloadSpeed() {
         long lastTime = currentTime;
         currentTime = System.currentTimeMillis();
-        System.out.println(downloadedLength - lastDownloadedLength);
-        System.out.println(currentTime - lastTime);
         downloadSpeed = Util.calculateSpeed(downloadedLength() - lastDownloadedLength, currentTime - lastTime, downloadSpeed);
         lastDownloadedLength = downloadedLength;
         return downloadSpeed;
@@ -114,34 +109,50 @@ public class HttpTask extends BaseTask implements Task {
                 return;
             }
         }
+
         createFile();
-        FileData.BlockSelector blockSelector = getBlockSelector();
+        FileData.BlockSelector blockSelector = FileData.BlockSelector.getDefault();
         List<FileData.Block> availableBlocks = files.get(0).getBlocks();  //need to change.
         FileData.Block block;
-        while (status() == Status.ACTIVE && !Thread.currentThread().isInterrupted()) {
-            while (currentConnections.get() < getMaximumConnections()) {
-                logger.debug("create connection, current: " + currentConnections.get());
-                block = Objects.requireNonNull(blockSelector).select(availableBlocks);
-                if (block == null) {
-                    if (currentConnections.get() <= 0) {
-                        changeStatus(Status.COMPLETED);
-                        return;
-                    } else break;
-                }
-                block.available = false;
-                if (protocol.equals("http")) {
-                    createHttpConnection(block);
+        currentTime = System.currentTimeMillis();
+
+        while (status() == Status.ACTIVE) {
+            logger.log(Level.DEBUG, "current connections:" + currentConnections.get());
+            block = Objects.requireNonNull(blockSelector).select(availableBlocks);
+            if (block == null) {
+                if (currentConnections.get() == 0) {
+                    logger.log(Level.INFO, "Task complete");
+                    changeStatus(Status.COMPLETED);
+                    break;
                 } else {
-                    createHttpsConnection(block);
+                    try {
+                        synchronized (this) {
+                            wait();
+                        }
+                    } catch (InterruptedException e) {
+                        logger.log(Level.ERROR, "", e);
+                        changeStatus(Status.ERROR, e);
+                    }
+                    continue;
                 }
-                currentConnections.incrementAndGet();
             }
-            synchronized (this) {
+
+            if (currentConnections.get() >= getMaximumConnections()) {
                 try {
-                    wait();
+                    synchronized (this) {
+                        this.wait();
+                    }
                 } catch (InterruptedException e) {
-                    e.printStackTrace();
+                    logger.log(Level.ERROR, "", e);
+                    changeStatus(Status.ERROR, e);
                 }
+            }
+            currentConnections.incrementAndGet();
+            block.available = false;
+            if (protocol.equals("http")) {
+                createHttpConnection(block);
+            } else {
+                createHttpsConnection(block);
             }
         }
     }
@@ -153,6 +164,23 @@ public class HttpTask extends BaseTask implements Task {
         HttpURLConnection httpConnection;
         httpConnection = (HttpURLConnection) this.uri.toURL().openConnection();
         httpConnection.connect();
+        int statusCode = httpConnection.getResponseCode();
+        if (statusCode / 100 != 2) {
+            if (statusCode == 300 || statusCode == 301 || statusCode == 302) {
+                logger.log(Level.INFO, "redirect");
+                try {
+                    uri = new URI(httpConnection.getHeaderField("Location"));
+                } catch (URISyntaxException e) {
+                    logger.log(Level.ERROR, "", e);
+                    changeStatus(Status.ERROR, e);
+                }
+                setHttpFileAttributes();
+                return;
+            } else {
+                logger.log(Level.ERROR, "status code:" + statusCode);
+                changeStatus(Status.ERROR);
+            }
+        }
         totalLength = httpConnection.getContentLength();
         type = httpConnection.getContentType();
     }
@@ -173,8 +201,14 @@ public class HttpTask extends BaseTask implements Task {
         }
         httpsConnection.setInstanceFollowRedirects(false);
         httpsConnection.connect();
+        int statusCode = httpsConnection.getResponseCode();
+        if (statusCode == 300) {
+            logger.log(Level.ERROR, "Wrong Status code" + statusCode);
+            changeStatus(Status.ERROR);
+        }
         totalLength = httpsConnection.getContentLength();
         type = httpsConnection.getContentType();
+        logger.log(Level.INFO, "length:" + totalLength + " type:" + type);
     }
 
     /**
@@ -206,7 +240,11 @@ public class HttpTask extends BaseTask implements Task {
                 connected = socketChannel.finishConnect();
             }
             socketChannel.write(requestBuffer);
-            skipHttpHeader(socketChannel);
+            if (!skipHttpHeader(socketChannel)) {
+                block.available = true;
+                socketChannel.close();
+                currentConnections.decrementAndGet();
+            }
 
             RandomAccessFile randomAccessFile = new RandomAccessFile(files.get(0).getFile(), "rw");
             FileChannel fileChannel = randomAccessFile.getChannel();
@@ -217,8 +255,8 @@ public class HttpTask extends BaseTask implements Task {
             httpRead(socketChannel, fileChannel, responseBuffer);
 
         } catch (IOException e) {
+            logger.log(Level.ERROR, "", e);
             block.available = true;
-            logger.error("exception during create http connection", e);
         }
     }
 
@@ -233,32 +271,38 @@ public class HttpTask extends BaseTask implements Task {
             SSLEngine sslEngine = SSLEngineUtil.prepareEngine(host, port);
             SocketChannel socketChannel = SSLEngineUtil.prepareChannel(host, port);
             boolean connected = socketChannel.finishConnect();
+
             while (!connected) {
                 connected = socketChannel.finishConnect();
             }
+
             SSLSession session = sslEngine.getSession();
             ByteBuffer myAppBuffer = ByteBuffer.allocate(session.getApplicationBufferSize());
             ByteBuffer myNetBuffer = ByteBuffer.allocate(session.getPacketBufferSize());
             ByteBuffer peerAppBuffer = ByteBuffer.allocate(session.getApplicationBufferSize());
             ByteBuffer peerNetBuffer = ByteBuffer.allocate(session.getPacketBufferSize());
 
+            logger.log(Level.DEBUG, "Size of appBuffer: " + session.getApplicationBufferSize());
+            logger.log(Level.DEBUG, "Size of netBuffer: " + session.getPacketBufferSize());
+
+
             SSLEngineUtil.doHandshake(socketChannel, sslEngine, myNetBuffer, peerNetBuffer);
 
-            SSLEngineUtil.sendRequest(host, port, path, sslEngine, myAppBuffer, myNetBuffer, socketChannel, block);
+            SSLEngineUtil.sendRequest(host, path, sslEngine, myAppBuffer, myNetBuffer, socketChannel, block);
 
             RandomAccessFile randomAccessFile = new RandomAccessFile(files.get(0).getFile(), "rw");
             FileChannel fileChannel = randomAccessFile.getChannel();
             fileChannel.position(block.offset);
 
-            httpsRead(socketChannel, fileChannel, peerNetBuffer, peerAppBuffer, sslEngine);
+            httpsRead(socketChannel, fileChannel, peerNetBuffer, peerAppBuffer, sslEngine, block);
+
+
         } catch (Exception e) {
             block.available = true;
-            logger.error("exception during create https connection", e);
         }
     }
 
-
-    private void httpsRead(ReadableByteChannel readChannel, WritableByteChannel writeChannel, ByteBuffer netBuffer, ByteBuffer appBuffer, SSLEngine sslEngine) {
+    private void httpsRead(ReadableByteChannel readChannel, WritableByteChannel writeChannel, ByteBuffer netBuffer, ByteBuffer appBuffer, SSLEngine sslEngine, FileData.Block block) {
         IOCallback httpsReadCallback = (Channel socketchannel, ByteBuffer responseBuffer, int size, Exception exception) -> {
             if (size != -1) {
                 if (size > 0) {
@@ -267,21 +311,34 @@ public class HttpTask extends BaseTask implements Task {
                     try {
                         res = sslEngine.unwrap(netBuffer, appBuffer);
                     } catch (SSLException e) {
+                        logger.log(Level.ERROR, "", e);
                         changeStatus(Status.ERROR, e);
                     }
+
                     if (Objects.requireNonNull(res).getStatus() == SSLEngineResult.Status.BUFFER_UNDERFLOW) {
                         netBuffer.compact();
-                        httpsRead(readChannel, writeChannel, netBuffer, appBuffer, sslEngine);
+                        httpsRead(readChannel, writeChannel, netBuffer, appBuffer, sslEngine, block);
                     }
                     if (res.getStatus() == SSLEngineResult.Status.OK) {
                         netBuffer.compact();
                         appBuffer.flip();
-                        skipHttpsHeader(appBuffer);
-                        httpsWrite(readChannel, writeChannel, netBuffer, appBuffer, sslEngine);
+                        if (!skipHttpsHeader(appBuffer)) {
+                            block.available = true;
+                            try {
+                                readChannel.close();
+                                writeChannel.close();
+                            } catch (IOException e) {
+                                logger.log(Level.ERROR, "fail to close channel", e);
+                            }
+                            currentConnections.decrementAndGet();
+                            return;
+
+                        }
+                        httpsWrite(readChannel, writeChannel, netBuffer, appBuffer, sslEngine, block);
                     }
                 } else {
                     netBuffer.compact();
-                    httpsRead(readChannel, writeChannel, netBuffer, appBuffer, sslEngine);
+                    httpsRead(readChannel, writeChannel, netBuffer, appBuffer, sslEngine, block);
                 }
             } else {
                 try {
@@ -293,6 +350,7 @@ public class HttpTask extends BaseTask implements Task {
                     changeStatus(Status.ERROR, e);
                 }
                 currentConnections.decrementAndGet();
+                logger.log(Level.DEBUG, "block complete");
                 synchronized (this) {
                     notify();
                 }
@@ -302,23 +360,22 @@ public class HttpTask extends BaseTask implements Task {
 
     }
 
-    private void httpsWrite(ReadableByteChannel readChannel, WritableByteChannel writeChannel, ByteBuffer netBuffer, ByteBuffer appBuffer, SSLEngine sslEngine) {
+    private void httpsWrite(ReadableByteChannel readChannel, WritableByteChannel writeChannel, ByteBuffer netBuffer, ByteBuffer appBuffer, SSLEngine sslEngine, FileData.Block block) {
         IOCallback httpsWriteCallback = (Channel fileChannel, ByteBuffer responseBuffer, int size, Exception exception) -> {
             downloadLengthAdder.add(size);
             while (appBuffer.hasRemaining()) {
-                httpsWrite(readChannel, writeChannel, netBuffer, appBuffer, sslEngine);
+                httpsWrite(readChannel, writeChannel, netBuffer, appBuffer, sslEngine, block);
             }
             appBuffer.clear();
-            httpsRead(readChannel, writeChannel, netBuffer, appBuffer, sslEngine);
+            httpsRead(readChannel, writeChannel, netBuffer, appBuffer, sslEngine, block);
         };
         Objects.requireNonNull(ioScheduler).write(writeChannel, appBuffer, httpsWriteCallback);
     }
 
-
     private void httpRead(ReadableByteChannel readChannel, WritableByteChannel writeChannel, ByteBuffer buffer) {
         IOCallback httpReadCallback = (Channel channel, ByteBuffer responseBuffer, int size, Exception exception) -> {
             if (exception != null) {
-                logger.log(Level.ERROR, "fail to read from socket", exception);
+                logger.log(Level.ERROR, "fail to read from socket channel", exception);
                 changeStatus(Status.ERROR, exception);
                 return;
             }
@@ -356,13 +413,29 @@ public class HttpTask extends BaseTask implements Task {
     /**
      * Skip the header to download content.
      */
-    private void skipHttpHeader(SocketChannel socketChannel) throws IOException {
+    private boolean skipHttpHeader(SocketChannel socketChannel) throws IOException {
         ByteBuffer tempBuffer = ByteBuffer.allocate(1);
         byte LastByte = 0;
         int read = socketChannel.read(tempBuffer);
+        int count = -1;
+        int statusCode = 0;
         while (read != -1) {
             if (LastByte == 10 && tempBuffer.get(0) == 13) {
                 break;
+            }
+            if (read != 0) {
+                ++count;
+            }
+            if (count == 9 && (char) tempBuffer.get(0) != '2') {
+                statusCode += 100 * ((int) tempBuffer.get(0) - (int) '0');
+                tempBuffer.clear();
+                socketChannel.read(tempBuffer);
+                statusCode += 10 * ((int) tempBuffer.get(0) - (int) '0');
+                tempBuffer.clear();
+                socketChannel.read(tempBuffer);
+                statusCode += ((int) tempBuffer.get(0) - (int) '0');
+                logger.log(Level.WARNING, "status code:" + statusCode);
+                return false;
             }
             LastByte = tempBuffer.get(0);
             tempBuffer.clear();
@@ -370,13 +443,19 @@ public class HttpTask extends BaseTask implements Task {
         }
         tempBuffer.clear();
         socketChannel.read(tempBuffer);
+        return true;
     }
 
-
-    private void skipHttpsHeader(ByteBuffer appBuffer) {
+    private boolean skipHttpsHeader(ByteBuffer appBuffer) {
         int count = 0;
         byte lastByte = 0;
         if ((char) appBuffer.get(0) == 'H' && (char) appBuffer.get(1) == 'T') {
+            int statusCode = ((int) appBuffer.get(9) - (int) '0') * 100 + ((int) appBuffer.get(10) - (int) '0') * 10 + ((int) appBuffer.get(11) - (int) '0');
+            System.out.println(statusCode);
+            if (statusCode / 200 != 0) {
+                logger.log(Level.WARNING, "status code:" + statusCode);
+                return false;
+            }
             while (true) {
                 if (lastByte == 10 && appBuffer.get(count) == 13) {
                     count += 2;
@@ -389,6 +468,7 @@ public class HttpTask extends BaseTask implements Task {
         } else {
             appBuffer.position(0);
         }
+        return true;
     }
 
     /**
@@ -396,6 +476,7 @@ public class HttpTask extends BaseTask implements Task {
      */
     private void createFile() {
         File file = new File(getDirectory(), name());  //type
+        System.out.println(getDirectory() + "/" + name());
         if (!file.exists()) {
             try {
                 file.createNewFile();
@@ -412,8 +493,4 @@ public class HttpTask extends BaseTask implements Task {
         logger.log(Level.INFO, "Create file successfully");
     }
 
-
 }
-
-
-
