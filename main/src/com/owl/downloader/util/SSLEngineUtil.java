@@ -1,6 +1,8 @@
 package com.owl.downloader.util;
 
 import com.owl.downloader.core.FileData;
+import com.owl.downloader.log.Level;
+import com.owl.downloader.log.Logger;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
@@ -91,9 +93,7 @@ public class SSLEngineUtil {
                 // Handle other status:  // FINISHED or NOT_HANDSHAKING
             }
         }
-
-        // Processes after handshaking
-//        System.out.println("after handshaking");
+        Logger.getInstance().log(Level.DEBUG,"Handshake Status: "+hs.toString());
     }
 
     private static void runDelegatedTasks(SSLEngineResult result, SSLEngine engine) {
@@ -108,23 +108,25 @@ public class SSLEngineUtil {
         }
     }
 
-    public static void sendRequest(String host, int port, String path,
+    public static void sendRequest(String host, String path,
                                    SSLEngine sslEngine, ByteBuffer myAppData, ByteBuffer myNetData, SocketChannel socketChannel, FileData.Block block)
             throws Exception {
         String header = ("GET " + path + " HTTP/1.1\r\n") +
-                "Host: " + host + "\r\n" +
-                "Connection: close\r\n" +
+                "Host:" + host + "\r\n" +
                 "Range: bytes=" + block.offset + "-" + (block.length + block.offset - 1) + "\r\n" +
+                "Connection: close\r\n" +
                 "\r\n";
         myAppData.put(header.getBytes());
         myAppData.flip();
 
         myNetData.clear();
+
         SSLEngineResult res = sslEngine.wrap(myAppData, myNetData);
         if (res.getStatus() == SSLEngineResult.Status.OK) {
             myNetData.flip();
             socketChannel.write(myNetData);
         }
+
     }
 
 }
