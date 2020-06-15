@@ -166,7 +166,7 @@ public class HttpTask extends BaseTask implements Task {
         httpConnection.connect();
         int statusCode = httpConnection.getResponseCode();
         if (statusCode / 100 != 2) {
-            if (statusCode == 300 || statusCode == 301 || statusCode == 302) {
+            if (statusCode == 300) {
                 logger.log(Level.INFO, "redirect");
                 try {
                     uri = new URI(httpConnection.getHeaderField("Location"));
@@ -185,11 +185,8 @@ public class HttpTask extends BaseTask implements Task {
         type = httpConnection.getContentType();
     }
 
-    private void setHttpsFileAttributes() throws NoSuchAlgorithmException, KeyManagementException, IOException {
-        SSLContext sslcontext = SSLContext.getInstance("SSL");
-        sslcontext.init(null, new TrustManager[]{new MyX509TrustManager()}, new java.security.SecureRandom());
-        HostnameVerifier ignoreHostnameVerifier = (s, sslSession) -> true;
-        HttpsURLConnection.setDefaultHostnameVerifier(ignoreHostnameVerifier);
+    private void setHttpsFileAttributes() throws NoSuchAlgorithmException, IOException {
+        SSLContext sslcontext = SSLContext.getDefault();
         HttpsURLConnection.setDefaultSSLSocketFactory(sslcontext.getSocketFactory());
         HttpsURLConnection httpsConnection;
         try {
@@ -199,11 +196,20 @@ public class HttpTask extends BaseTask implements Task {
             changeStatus(Status.ERROR, e);
             return;
         }
-        httpsConnection.setInstanceFollowRedirects(false);
         httpsConnection.connect();
         int statusCode = httpsConnection.getResponseCode();
         if (statusCode == 300) {
-            logger.log(Level.ERROR, "Wrong Status code" + statusCode);
+            logger.log(Level.INFO, "redirect");
+            try {
+                uri = new URI(httpsConnection.getHeaderField("Location"));
+            } catch (URISyntaxException e) {
+                logger.log(Level.ERROR, "", e);
+                changeStatus(Status.ERROR, e);
+            }
+            setHttpsFileAttributes();
+        }
+        else if(statusCode / 200 != 1){
+            logger.log(Level.WARNING,"status code: "+statusCode);
             changeStatus(Status.ERROR);
         }
         totalLength = httpsConnection.getContentLength();
@@ -229,7 +235,7 @@ public class HttpTask extends BaseTask implements Task {
             socketChannel.connect(address);
 
 
-            String requestMessage = ("GET " + path + " HTTP/1.1\r\n") +
+            String requestMessage = ("GET " + path + " 'HTTP/1.1\r\n") +
                     "Host:" + host + "\r\n" +
                     "Range: bytes=" + block.offset + "-" + (block.length + block.offset - 1) + "\r\n" +
                     "Connection: close\r\n" +
@@ -282,15 +288,12 @@ public class HttpTask extends BaseTask implements Task {
             ByteBuffer peerAppBuffer = ByteBuffer.allocate(session.getApplicationBufferSize());
             ByteBuffer peerNetBuffer = ByteBuffer.allocate(session.getPacketBufferSize());
 
-            logger.log(Level.DEBUG, "Size of appBuffer: " + session.getApplicationBufferSize());
-            logger.log(Level.DEBUG, "Size of netBuffer: " + session.getPacketBufferSize());
-
-
             SSLEngineUtil.doHandshake(socketChannel, sslEngine, myNetBuffer, peerNetBuffer);
 
             SSLEngineUtil.sendRequest(host, path, sslEngine, myAppBuffer, myNetBuffer, socketChannel, block);
 
             RandomAccessFile randomAccessFile = new RandomAccessFile(files.get(0).getFile(), "rw");
+
             FileChannel fileChannel = randomAccessFile.getChannel();
             fileChannel.position(block.offset);
 
@@ -452,7 +455,7 @@ public class HttpTask extends BaseTask implements Task {
         if ((char) appBuffer.get(0) == 'H' && (char) appBuffer.get(1) == 'T') {
             int statusCode = ((int) appBuffer.get(9) - (int) '0') * 100 + ((int) appBuffer.get(10) - (int) '0') * 10 + ((int) appBuffer.get(11) - (int) '0');
             System.out.println(statusCode);
-            if (statusCode / 200 != 0) {
+            if (statusCode / 200 != 1) {
                 logger.log(Level.WARNING, "status code:" + statusCode);
                 return false;
             }
