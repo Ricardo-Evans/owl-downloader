@@ -9,6 +9,12 @@ import java.util.LinkedList;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 
+/**
+ * Unit test of Dispatcher
+ *
+ * @author Zsi-r
+ * @version 1.0
+ */
 public class DispatcherTest {
     private static Dispatcher dispatcher1;
     private static Field handlers;
@@ -41,6 +47,7 @@ public class DispatcherTest {
 
     @BeforeAll
     static void attachTest() {
+        handlersList.clear();
         for (int i = 0 ; i < 2 ; i++){
             dispatcher1.attach(handle1);
         }
@@ -56,9 +63,9 @@ public class DispatcherTest {
     }
 
     @AfterAll
-    static void dettachTest(){
+    static void detachTest(){
         assertThrows(NullPointerException.class,()->dispatcher1.detach(null));//parameter should not be null
-        EventHandler handle2 = (Event event, Task task, Exception exception)->{return true;};
+        EventHandler handle2 = (Event event, Task task, Exception exception)-> true;
         assertDoesNotThrow(()->dispatcher1.detach(handle2));//If this handlerList does not contain the handle, it is unchanged and doesn't throw exception.
         assertSame(2,handlersList.size());
         for (int i = 0 ; i < 3 ; i++){

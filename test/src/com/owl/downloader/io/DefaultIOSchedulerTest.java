@@ -14,6 +14,12 @@ import java.util.concurrent.ForkJoinPool;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+/**
+ * Unit test of DefaultIOScheduler
+ *
+ * @author Zsi-r
+ * @version 1.0
+ */
 class DefaultIOSchedulerTest {
     private static DefaultIOScheduler scheduler1 = DefaultIOScheduler.getInstance();
     private static Field selectorField;
@@ -129,19 +135,4 @@ class DefaultIOSchedulerTest {
         assertTrue(new File(filePath1).delete());
     }
 
-    @Disabled
-    void ReadRunTest() throws IllegalAccessException, IOException {
-        assertTrue((Boolean) runningField.get(scheduler1));
-        SocketChannel mockChannel = mock(SocketChannel.class);
-        mockChannel.configureBlocking(false);
-        ByteBuffer mockBuffer = mock(ByteBuffer.class);
-        IOCallback callback = (Channel fileChannel, ByteBuffer responseBuffer, int size, Exception exception)->{
-            System.out.println(fileChannel);
-            System.out.println(responseBuffer);
-            System.out.println(size);
-            System.out.println(exception);
-        };
-//        read.invoke(scheduler1,mockChannel,mockBuffer,callback);
-
-    }
 }

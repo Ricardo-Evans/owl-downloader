@@ -19,6 +19,12 @@ import static java.lang.Integer.MAX_VALUE;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+/**
+ * Unit test of Session
+ *
+ * @author Zsi-r
+ * @version 1.0
+ */
 @SuppressWarnings("unchecked")
 class SessionTest {
     private static Session session1 = Session.getInstance();
@@ -165,7 +171,7 @@ class SessionTest {
 
     @BeforeAll
     @Order(2)
-    static void insertTaskTest() throws IOException {
+    static void insertTaskTest() {
         session1.insertTask(task1);
         session1.insertTask(task2);
         assertEquals(2, tasks.size());
@@ -173,7 +179,7 @@ class SessionTest {
 
     @AfterAll
     @Order(MAX_VALUE-1)
-    static void removeTaskTest() throws IOException {
+    static void removeTaskTest() {
         tasks.getFirst().prepare();
         assertThrows(IllegalStateException.class,()->session1.removeTask(task1));
         tasks.getFirst().pause();
@@ -301,7 +307,7 @@ class SessionTest {
 
     @Test
     void fromUri() {
-        assertThrows(NullPointerException.class,()->Session.fromUri(URI.create(null)));
+        assertThrows(NullPointerException.class,()->Session.fromUri(null));
         URI uri1 = URI.create("ftp://www.runoob.com/java/java-exceptions.html");
         assertThrows(UnsupportedProtocolException.class,
                 ()->Session.fromUri(uri1));
@@ -309,7 +315,7 @@ class SessionTest {
         assertTrue(()->Session.fromUri(uri2) instanceof HttpTask);
     }
 
-    // TODO: Test of supported protocol should wait for bt protocol to be written.
+    // Since we didn't plan to write BtTask, this fromFile function will not be tested
     @Disabled
     void fromFile() {
         assertThrows(NullPointerException.class,()->Session.fromFile(null));

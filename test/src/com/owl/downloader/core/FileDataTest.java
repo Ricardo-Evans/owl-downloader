@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 
 /**
- * Testing the FileData java class
+ * Testing the FileData
  *
  * @author Zsi-r
  * @version 1.0

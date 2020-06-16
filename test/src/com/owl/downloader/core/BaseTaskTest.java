@@ -16,6 +16,12 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 
+/**
+ * Unit test of BaseTask
+ *
+ * @author Zsi-r
+ * @version 1.0
+ */
 class BaseTaskTest {
     BaseTask baseTask1 = new BaseTask("name of baseTask1") {
         @Override
@@ -232,15 +238,10 @@ class BaseTaskTest {
         assertSame(defaultSelector,proxySelectorField.get(baseTask1));
     }
 
-    //TODO: implement BlockSelector test
-    @Disabled
+    @Test
     void getBlockSelector() throws IllegalAccessException {
-        if (blockSizeField.get(baseTask1)!=null){
-            assertSame(blockSizeField.get(baseTask1),baseTask1.getBlockSelector());
+        if (blockSelectorField.get(baseTask1)!=null){
+            assertSame(blockSelectorField.get(baseTask1),baseTask1.getBlockSelector());
         }
-    }
-
-    @Disabled
-    void setBlockSelector() {
     }
 }
