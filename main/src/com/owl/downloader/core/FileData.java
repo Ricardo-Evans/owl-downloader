@@ -19,12 +19,14 @@ public class FileData implements Serializable {
 
     public FileData(String path, int blockSize) {
         Objects.requireNonNull(path, "the path of file cannot be null");
+        if(blockSize<=0) throw new IllegalArgumentException("the blockSize should be positive integer");
         this.file = new File(path);
         split(blockSize);
     }
 
     public FileData(File file, int blockSize) {
         Objects.requireNonNull(file, "the file cannot be null");
+        if(blockSize<=0) throw new IllegalArgumentException("the blockSize should be positive integer");
         this.file = file;
         split(blockSize);
     }
