@@ -14,9 +14,11 @@ import java.util.Objects;
 
 import com.owl.downloader.io.IOCallback;
 import com.owl.downloader.io.IOScheduler;
+import org.apache.commons.net.ftp.FTP;
 import org.apache.commons.net.ftp.FTPClient;
 import org.apache.commons.net.ftp.FTPFile;
 import org.apache.commons.net.ftp.FTPReply;
+
 
 
 /**
@@ -130,6 +132,12 @@ public class FtpTask extends BaseTask implements Task{
         changeStatus(Status.COMPLETED);
     }
 
+    /**
+     * Adjust downloaded length,always occurs during callback.
+     */
+    private void adjustDownloadedLength(int size) {
+        downloadedLength += size;
+    }
 
     /**
      * Get the username and password from uri
@@ -160,9 +168,21 @@ public class FtpTask extends BaseTask implements Task{
 
             //TODO: find a way to control the size each time read in
 
+            String sizeCommand = "Size" + fileName + "\r\n";
+            client.sendCommand(sizeCommand);
+            if(client.getReplyCode() == 213){
+                totalLength = FTPReply.FILE_STATUS;
+            }else{
+                totalLength = -1;
+            }
+
         }catch(IOException e){
             block.available = true;
         }
+    }
+
+    private void sendCommand(String strCommand){
+
     }
 
     private void ftpRead(ReadableByteChannel readChannel, WritableByteChannel writeChannel, ByteBuffer buffer) {
@@ -191,13 +211,6 @@ public class FtpTask extends BaseTask implements Task{
             ftpRead(readChannel, (WritableByteChannel) fileChannel, responseBuffer);
         };
         Objects.requireNonNull(ioScheduler).write(writeChannel, buffer, httpWriteCallback);
-    }
-
-    /**
-     * Adjust downloaded length,always occurs during callback.
-     */
-    private void adjustDownloadedLength(int size) {
-        downloadedLength += size;
     }
 
     /**
