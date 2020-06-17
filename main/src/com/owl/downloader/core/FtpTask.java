@@ -3,6 +3,7 @@ package com.owl.downloader.core;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.Proxy;
+import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.util.LinkedList;
 import java.util.List;
@@ -113,6 +114,26 @@ public class FtpTask extends BaseTask implements Task{
             }
         }
 
+        /**
+         * Use passive mode
+         * Use binary upload
+         */
+        client.enterLocalPassiveMode();
+        try {
+            client.setFileType(FTP.BINARY_FILE_TYPE);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        // get the length of the file
+        FTPFile[] fs = new FTPFile[0];
+        try {
+            fs = client.listFiles(path);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        totalLength = fs[0].getSize();
+
         createFile();
         FileData.BlockSelector blockSelector = FileData.BlockSelector.getDefault();
         List<FileData.Block> availableBlocks = files.get(0).getBlocks();  //need to change.
@@ -130,6 +151,11 @@ public class FtpTask extends BaseTask implements Task{
             }
         }
         changeStatus(Status.COMPLETED);
+        try {
+            closeFTP();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     /**
@@ -154,35 +180,63 @@ public class FtpTask extends BaseTask implements Task{
     }
 
     private void createFTPConnection(FileData.Block block) {
-        try (SocketChannel socketChannel = SocketChannel.open()){
+        try {
+            SocketChannel socketChannel = SocketChannel.open();
             socketChannel.configureBlocking(false); //non-blocking
 
             int port = uri.getPort();
             if (port == -1) {
                 port = 21;
             }
+
+            // connect
             InetSocketAddress address = new InetSocketAddress(ftpHost, port);
             socketChannel.connect(address);
 
+            boolean connected = socketChannel.finishConnect();
+            while (!connected) {
+                connected = socketChannel.finishConnect();
+            }
+            System.out.println("是否连接" + socketChannel.isConnected());
+
+            // login
+            ByteBuffer logInBuffer = ByteBuffer.wrap(("User" + userName +"\r\n").getBytes());
+            ByteBuffer logInResponseBuffer = ByteBuffer.allocate(16);
+            socketChannel.write(logInBuffer);
+            // TODO: check if succeed; not find a way to get the check code yet
+
+            logInBuffer = ByteBuffer.wrap(("PASS" + psw + "\r\n").getBytes());
+            socketChannel.write(logInBuffer);
+            // TODO: check if succeed; not find a way to get the check code yet
+
             client.changeWorkingDirectory(workingPath);
 
-            //TODO: find a way to control the size each time read in
+            String changeMenu = "CDW" + workingPath + "\r\n";
+//            String positionMsg = "REST" + block.offset;
+            String downloadMsg = "RETR" + fileName + "\r\n";
 
-            String sizeCommand = "Size" + fileName + "\r\n";
-            client.sendCommand(sizeCommand);
-            if(client.getReplyCode() == 213){
-                totalLength = FTPReply.FILE_STATUS;
-            }else{
-                totalLength = -1;
-            }
+            // change to the working path
+            ByteBuffer msgBuffer = ByteBuffer.wrap(changeMenu.getBytes());
+            socketChannel.write(msgBuffer);
+            // TODO: check if succeed; not find a way to get the check code yet
+
+            // send instruction to download
+            msgBuffer.clear();
+            msgBuffer = ByteBuffer.wrap(downloadMsg.getBytes());
+            socketChannel.write(msgBuffer);
+            // TODO: check if succeed; not find a way to get the check code yet
+
+            RandomAccessFile randomAccessFile = new RandomAccessFile(files.get(0).getFile(), "rw");
+            FileChannel fileChannel = randomAccessFile.getChannel();
+
+            fileChannel.position(block.offset);
+            ByteBuffer responseBuffer = ByteBuffer.allocateDirect(64 * 1024);
+
+            ftpRead(socketChannel, fileChannel, responseBuffer);
 
         }catch(IOException e){
             block.available = true;
         }
-    }
-
-    private void sendCommand(String strCommand){
-
     }
 
     private void ftpRead(ReadableByteChannel readChannel, WritableByteChannel writeChannel, ByteBuffer buffer) {
@@ -238,11 +292,10 @@ public class FtpTask extends BaseTask implements Task{
      * abort: cut down the file transfer, return true if succeed, or false
      * disconnect: cut down the connection with ftp-server, and recover the FTPClient its default parameters
      *
-     * @param client a FTPClient instance
      * @return the FTPClient instance
      * @throws Exception
      */
-    private FTPClient closeFTP(FTPClient client) throws Exception{
+    private FTPClient closeFTP() throws Exception{
         try {
             if (client != null && client.isConnected()) {
                 client.abort();
